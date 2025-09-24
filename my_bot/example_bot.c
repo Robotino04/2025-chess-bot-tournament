@@ -130,23 +130,25 @@ void orderMoves(Move* moves, int len) {
 float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
     ++*nodes;
     if (chess_get_elapsed_time_millis() > 10000) {
-        return -INFINITY;
+        return -12345.f;
     }
 
-    float bestValue = -INFINITY;
+    float bestValue = -INFINITY; // infty comes from here
 
 
     int len_moves;
     Move* moves = chess_get_legal_moves(board, &len_moves);
 
-    if (depthleft <= 0) {
-        if (len_moves == 0) {
-            if (chess_in_check(board)) {}
-            else {
-                bestValue = 0;
-            }
-            goto done;
+    if (len_moves == 0) {
+        if (!chess_in_check(board)) {
+            bestValue = 0;
         }
+        else { // todo: comment out
+            bestValue = -INFINITY;
+        }
+        goto done;
+    }
+    if (depthleft <= 0) {
         bestValue = static_eval();
         if (bestValue > alpha)
             alpha = bestValue;
