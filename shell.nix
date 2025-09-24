@@ -6,12 +6,13 @@ let
     src = ./src/c/.;
     buildPhase = ''
       mkdir -p $out/lib
-      $CC -o $out/lib/libchess.so -shared bitboard.c chessapi.c -fPIC
+      $CC -O3 -o $out/lib/libchess.so -shared bitboard.c chessapi.c -fPIC
     '';
   };
 in
   pkgs.mkShell {
     packages = [
       chess-lib
+      pkgs.openjdk24
     ];
   }
