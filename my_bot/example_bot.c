@@ -6,7 +6,10 @@
 #include <assert.h>
 #include <stdbit.h>
 
+// remove static
 static Board* board;
+static uint64_t time_left;
+
 // TODO
 // - [ ] macro away the board parameter: #define chess_get_legal_moves(...) chess_get_legal_moves(board, __VA_ARGS__)
 // - [ ] remove braces of single-line if-statements
@@ -113,8 +116,8 @@ float scoreMove(Move* move) {
 }
 
 int compareMoves(const void* a, const void* b) {
-    float sa = scoreMove(a);
-    float sb = scoreMove(b);
+    float sa = scoreMove((Move*)a); // TODO: remove case
+    float sb = scoreMove((Move*)b); // TODO: remove case
 
     if (sa < sb)
         return 1;
@@ -129,7 +132,7 @@ void orderMoves(Move* moves, int len) {
 
 float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
     ++*nodes;
-    if (chess_get_elapsed_time_millis() > 5000) {
+    if (chess_get_elapsed_time_millis() > time_left) {
         return -INFINITY;
     }
 
@@ -191,6 +194,9 @@ int main(int argc, char* argv[]) {
         Move prevBestMove = moves[0]; // TODO: move `moves` ptr instead of separate variable
         Move bestMove = moves[0];     // TODO: move `moves` ptr instead of separate variable
 
+        // TODO: divide by 20 to allow full-game time management
+        time_left = chess_get_time_millis(); // + increment /2 if we had that
+
         for (int depth = 1; depth < 10; depth++) {
             float bestValue = -INFINITY;
             long nodes = 0;
@@ -199,7 +205,7 @@ int main(int argc, char* argv[]) {
                 float score = -alphaBeta(-INFINITY, INFINITY, depth, &nodes);
 
                 chess_undo_move(board);
-                if (chess_get_elapsed_time_millis() > 5000) {
+                if (chess_get_elapsed_time_millis() > time_left) {
                     goto search_canceled;
                 }
 

@@ -1,7 +1,7 @@
 let
   pkgs = import <nixpkgs> {};
   chess-lib = pkgs.stdenv.mkDerivation {
-    version = "0.0.1";
+    version = "0.0.2";
     pname = "chess";
     src = ./src/c/.;
     buildPhase = ''
