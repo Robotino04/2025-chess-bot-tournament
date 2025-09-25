@@ -14,5 +14,6 @@ in
     packages = [
       chess-lib
       pkgs.openjdk24
+      pkgs.python3
     ];
   }
