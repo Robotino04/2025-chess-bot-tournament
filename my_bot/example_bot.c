@@ -1,4 +1,5 @@
 #include "chessapi.h"
+#include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -31,6 +32,7 @@ int countBit1Fast(unsigned long n) {
 //
 // endgame: 8/8/4k3/8/8/4K3/4R3/4R3 w - - 0 1
 // endgame nodraw: k7/8/1R6/1K6/8/8/8/8 w - - 18 10
+// 2k5/8/2K5/8/8/8/4R3/1R6 w - - 16 9
 
 // clang-format off
 const float distance[] = {
@@ -58,8 +60,8 @@ float static_eval_me(PlayerColor color) {
     float endgame_weight = 1.0f - material / (8 * 100 + 2 * 300 + 2 * 320 + 2 * 500 + 900);
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
     int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color ^ 1, KING));
-    material += distance[king] * endgame_weight * 5;
-    material -= (abs(king / 8 - king2 / 8) + abs(king % 8 - king2 % 8)) * endgame_weight * 1.0f;
+    material -= distance[king2] * endgame_weight * 1.0f;
+    material -= (abs(king / 8 - king2 / 8) + abs(king % 8 - king2 % 8)) * endgame_weight * 5.0f;
 
     return material;
 }
@@ -131,10 +133,11 @@ void orderMoves(Move* moves, int len) {
 }
 
 float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
-    ++*nodes;
     if (chess_get_elapsed_time_millis() > time_left) {
-        return -INFINITY;
+        return -12345.f;
     }
+
+    ++*nodes;
 
     float bestValue = -INFINITY;
 
@@ -142,39 +145,32 @@ float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
     int len_moves;
     Move* moves = chess_get_legal_moves(board, &len_moves);
 
-    if (len_moves == 0) {
-        if (!chess_in_check(board)) {
-            bestValue = 0;
-        }
-        else { // todo: comment out
-            bestValue = -INFINITY;
-        }
-        goto done;
-    }
-    if (depthleft <= 0) {
+    if (depthleft <= 0 || len_moves == 0) {
         bestValue = static_eval();
-        if (bestValue > alpha)
-            alpha = bestValue;
-        if (bestValue >= beta)
-            goto done;
+        goto done;
     }
 
     orderMoves(moves, len_moves);
 
     for (int i = 0; i < len_moves; i++) {
+        if (chess_get_elapsed_time_millis() > time_left) {
+            bestValue = 12345.f;
+            goto done;
+        }
+
         chess_make_move(board, moves[i]);
         float score = -static_eval();
         if (depthleft > 0 || moves[i].capture || chess_in_checkmate(board) || chess_in_draw(board)
             || chess_in_check(board)) {
             score = -alphaBeta(-beta, -alpha, depthleft - 1, nodes);
         }
+        chess_undo_move(board);
 
         if (score > bestValue) {
             bestValue = score;
             if (score > alpha)
                 alpha = score;
         }
-        chess_undo_move(board);
         if (score >= beta)
             goto done;
     }
@@ -192,7 +188,7 @@ int main(int argc, char* argv[]) {
         int len_moves;
         Move* moves = chess_get_legal_moves(board, &len_moves);
         Move prevBestMove = moves[0]; // TODO: move `moves` ptr instead of separate variable
-        Move bestMove = moves[0];     // TODO: move `moves` ptr instead of separate variable
+        Move bestMove = moves[0];
 
         // TODO: divide by 20 to allow full-game time management
         time_left = chess_get_time_millis(); // + increment /2 if we had that
@@ -203,10 +199,10 @@ int main(int argc, char* argv[]) {
             for (int i = 0; i < len_moves; i++) {
                 chess_make_move(board, moves[i]);
                 float score = -alphaBeta(-INFINITY, INFINITY, depth, &nodes);
-
                 chess_undo_move(board);
+
                 if (chess_get_elapsed_time_millis() > time_left) {
-                    goto search_canceled;
+                    break;
                 }
 
                 if (score > bestValue) {
@@ -225,6 +221,9 @@ int main(int argc, char* argv[]) {
             fflush(stdout);
             prevBestMove = bestMove;
             if (bestValue == INFINITY) {
+                break;
+            }
+            if (chess_get_elapsed_time_millis() > time_left) {
                 break;
             }
         }
