@@ -86,7 +86,7 @@ float scoreMove(Move* move) {
         score = 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
     }
 
-    if (move->promotion) { // check can be omitted
+    if (move->promotion) { // "if" can be omitted
         score += move->promotion;
     }
 
@@ -129,11 +129,11 @@ void orderMoves(Move* moves, int len) {
 
 float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
     ++*nodes;
-    if (chess_get_elapsed_time_millis() > 10000) {
-        return -12345.f;
+    if (chess_get_elapsed_time_millis() > 5000) {
+        return -INFINITY;
     }
 
-    float bestValue = -INFINITY; // infty comes from here
+    float bestValue = -INFINITY;
 
 
     int len_moves;
@@ -199,7 +199,7 @@ int main(int argc, char* argv[]) {
                 float score = -alphaBeta(-INFINITY, INFINITY, depth, &nodes);
 
                 chess_undo_move(board);
-                if (chess_get_elapsed_time_millis() > 10000) {
+                if (chess_get_elapsed_time_millis() > 5000) {
                     goto search_canceled;
                 }
 
