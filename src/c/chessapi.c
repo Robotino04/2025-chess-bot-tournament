@@ -795,6 +795,9 @@ static int uci_process(void *arg) {
                     if (!strcmp(token, "wtime")) {
                         char *rawtime = strtok(NULL, " ");
                         API->wtime = strtol(rawtime, NULL, 10);
+                    } else if (!strcmp(token, "movetime")) {
+                        char *rawtime = strtok(NULL, " ");
+                        API->btime = API->wtime = strtol(rawtime, NULL, 10);
                     } else if (!strcmp(token, "btime")) {
                         char *rawtime = strtok(NULL, " ");
                         API->btime = strtol(rawtime, NULL, 10);
