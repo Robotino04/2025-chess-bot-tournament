@@ -118,7 +118,18 @@ float static_eval(GameState state) {
     return (chess_is_white_turn(board) ? 1.0f : -1.0f) * (static_eval_me(WHITE) - static_eval_me(BLACK));
 }
 
+#define GEN_HASH                                                                \
+    uint64_t hash_orig = chess_zobrist_key(board);                              \
+    /* only works for powers of two */                                          \
+    uint64_t hash = (hash_orig ^ (hash_orig >> 32)) & (TRANSPOSITION_SIZE - 1); \
+    TranspositionEntry* entry = &transposition_table[hash];
+
+
 float scoreMove(Move* move) {
+    chess_make_move(board, *move);
+    GEN_HASH
+    chess_undo_move(board);
+
     PieceType movePiece = chess_get_piece_from_bitboard(board, move->from);
 
     float score = 0.0f;
@@ -129,6 +140,9 @@ float scoreMove(Move* move) {
     if (move->promotion) { // "if" can be omitted
         score += move->promotion;
     }
+
+    // probably possible with only checking once
+    score += fmax(entry->depth - 1, 0) * 100 + (entry->depth >= 2 ? entry->eval : 0);
 
 
     /* maybe if we get the bitboards
@@ -234,10 +248,7 @@ float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
         (TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0,
         "TRANSPOSITION_SIZE isn't a power of two"
     );
-    // TODO: remove const
-    const uint64_t hash_orig = chess_zobrist_key(board);
-    uint64_t hash = (hash_orig ^ (hash_orig >> 32)) & (TRANSPOSITION_SIZE - 1); // only works for powers of two
-    TranspositionEntry* entry = &transposition_table[hash];
+    GEN_HASH
     if (entry->depth >= depthleft && entry->hash == hash_orig) {
         // TODO: move into a single if
         if (entry->type == TYPE_EXACT) {
