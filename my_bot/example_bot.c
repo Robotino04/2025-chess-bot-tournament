@@ -12,9 +12,9 @@
 static Board* board;
 static uint64_t time_left;
 
-// 256 MB currently
 #define TRANSPOSITION_SIZE (1 << 25)
 
+// TODO: inline everywhere
 enum {
     TYPE_EXACT,
     TYPE_UPPER_BOUND,
@@ -22,8 +22,10 @@ enum {
 };
 
 typedef struct {
+    uint64_t hash;
     float eval;
     int depth;
+    int type;
 } TranspositionEntry;
 TranspositionEntry* transposition_table;
 // TODO: remove stats
@@ -225,17 +227,28 @@ float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
     if (depthleft <= 0) {
         return quiescence(alpha, beta, nodes);
     }
+    float alpha_orig = alpha;
 
     // TODO: remove assert
     static_assert(
         (TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0,
         "TRANSPOSITION_SIZE isn't a power of two"
     );
-    uint64_t hash = chess_zobrist_key(board);
-    hash = (hash ^ (hash >> 32)) & (TRANSPOSITION_SIZE - 1); // only works for powers of two
+    // TODO: remove const
+    const uint64_t hash_orig = chess_zobrist_key(board);
+    uint64_t hash = (hash_orig ^ (hash_orig >> 32)) & (TRANSPOSITION_SIZE - 1); // only works for powers of two
     TranspositionEntry* entry = &transposition_table[hash];
-    if (entry->depth >= depthleft) {
-        return entry->eval;
+    if (entry->depth >= depthleft && entry->hash == hash_orig) {
+        // TODO: move into a single if
+        if (entry->type == TYPE_EXACT) {
+            return entry->eval;
+        }
+        if (entry->type == TYPE_LOWER_BOUND && entry->eval >= beta) {
+            return entry->eval;
+        }
+        if (entry->type == TYPE_UPPER_BOUND && entry->eval < alpha) {
+            return entry->eval;
+        }
     }
 
     // quiescence will also instantly return 0 for draws
@@ -280,8 +293,12 @@ done:
             hashes_used++;
         }
 
+        entry->hash = hash_orig;
         entry->eval = bestValue;
         entry->depth = depthleft;
+        entry->type = bestValue <= alpha_orig ? TYPE_UPPER_BOUND
+                    : bestValue >= beta       ? TYPE_LOWER_BOUND
+                                              : TYPE_EXACT;
     }
 
     return bestValue;
