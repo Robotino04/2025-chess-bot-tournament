@@ -83,12 +83,12 @@ float static_eval_me(PlayerColor color) {
     return material;
 }
 
-float static_eval(void) {
-    if (chess_in_checkmate(board)) {
+float static_eval(GameState state) {
+    if (state == GAME_CHECKMATE) {
         return -INFINITY;
     }
 
-    if (chess_in_draw(board)) {
+    if (state == GAME_STALEMATE) {
         return 0;
     }
 
@@ -151,11 +151,11 @@ float quiescence(float alpha, float beta, long* nodes) {
     }
     ++*nodes;
 
-    if (chess_in_draw(board)) {
+    GameState state = chess_get_game_state(board);
+    if (state == GAME_STALEMATE) {
         return 0;
     }
-
-    float bestValue = static_eval();
+    float bestValue = static_eval(state);
     if (bestValue >= beta) {
         return bestValue;
     }
@@ -164,10 +164,11 @@ float quiescence(float alpha, float beta, long* nodes) {
     int len_moves;
     Move* moves = chess_get_legal_moves(board, &len_moves);
     orderMoves(moves, len_moves);
+    bool is_check = chess_in_check(board);
 
     for (int i = 0; i < len_moves; i++) {
-        // maybe stupid because chekmate/.. only happens after making the move
-        if (!(moves[i].capture || chess_in_checkmate(board) || chess_in_draw(board) || chess_in_check(board))) {
+        // maybe invert and wrap everything
+        if (!(moves[i].capture || is_check)) {
             continue;
         }
 
@@ -197,12 +198,16 @@ float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
         return -12345.f;
     }
 
-    if (chess_in_draw(board)) {
-        return 0;
-    }
-
     if (depthleft <= 0) {
         return quiescence(alpha, beta, nodes);
+    }
+
+    // quiescence will also instantly return 0 for draws
+    // this saves a bit of performance
+    // TODO: inline
+    GameState state = chess_get_game_state(board);
+    if (state == GAME_STALEMATE) {
+        return 0;
     }
 
     ++*nodes;
