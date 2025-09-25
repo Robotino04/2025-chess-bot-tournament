@@ -33,35 +33,39 @@ int countBit1Fast(unsigned long n) {
 // endgame: 8/8/4k3/8/8/4K3/4R3/4R3 w - - 0 1
 // endgame nodraw: k7/8/1R6/1K6/8/8/8/8 w - - 18 10
 // 2k5/8/2K5/8/8/8/4R3/1R6 w - - 16 9
+// 3k4/8/8/8/8/8/8/3R3K b - - 0 1
 
 // clang-format off
 const float distance[] = {
-    0, 0, 0, 0, 0, 0, 0, 0,
-    0, 1, 1, 1, 1, 1, 1, 0,
-    0, 1, 2, 2, 2, 2, 1, 0,
     0, 1, 2, 3, 3, 2, 1, 0,
+    1, 2, 3, 4, 4, 3, 2, 1,
+    2, 3, 4, 5, 5, 4, 3, 2,
+    3, 4, 5, 6, 6, 5, 4, 3,
+    3, 4, 5, 6, 6, 5, 4, 3,
+    2, 3, 4, 5, 5, 4, 3, 2,
+    1, 2, 3, 4, 4, 3, 2, 1,
     0, 1, 2, 3, 3, 2, 1, 0,
-    0, 1, 2, 2, 2, 2, 1, 0,
-    0, 1, 1, 1, 1, 1, 1, 0,
-    0, 0, 0, 0, 0, 0, 0, 0,
 };
 // clang-format on
+float material_of(PlayerColor color) {
+    return (float)stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100.0f
+         + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300.0f
+         + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP)) * 320.0f
+         + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500.0f
+         + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900.0f;
+}
 
 float static_eval_me(PlayerColor color) {
     // TODO: remove before submission
     static_assert(WHITE == 0, "WHITE isn't 0");
     static_assert(BLACK == 1, "BLACK isn't 1");
 
-    float material = (float)stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100.0f
-                   + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300.0f
-                   + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP)) * 320.0f
-                   + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500.0f
-                   + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900.0f;
-    float endgame_weight = 1.0f - material / (8 * 100 + 2 * 300 + 2 * 320 + 2 * 500 + 900);
+    float material = material_of(color);
+    float endgame_weight = 1.0f - material / (float)(8 * 100 + 2 * 300 + 2 * 320 + 2 * 500 + 900);
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
     int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color ^ 1, KING));
-    material -= distance[king2] * endgame_weight * 1.0f;
-    material -= (abs(king / 8 - king2 / 8) + abs(king % 8 - king2 % 8)) * endgame_weight * 5.0f;
+    material += distance[king] * endgame_weight * 1.0f;
+    material -= (abs(king / 8 - king2 / 8) + abs(king % 8 - king2 % 8)) * endgame_weight * 2.0f;
 
     return material;
 }
@@ -145,8 +149,12 @@ float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
     int len_moves;
     Move* moves = chess_get_legal_moves(board, &len_moves);
 
-    if (depthleft <= 0 || len_moves == 0) {
-        bestValue = static_eval();
+    if (chess_in_draw(board)) {
+        bestValue = 0;
+        goto done;
+    }
+    else if (chess_in_checkmate(board)) {
+        bestValue = -INFINITY;
         goto done;
     }
 
