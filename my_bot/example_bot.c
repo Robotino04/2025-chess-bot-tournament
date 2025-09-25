@@ -42,6 +42,7 @@ int countBit1Fast(unsigned long n) {
 // 8/4k3/8/4K3/8/8/8/2R5 w - - 41 22
 //
 // midgame fail: r5k1/p6p/6p1/2Qb1r2/P6K/8/RP5P/6R1 w - - 0 33
+// prevent promotion: 8/3K4/4P3/8/8/8/6k1/7q w - - 0 1
 
 float material_of(PlayerColor color) {
     return (float)stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100.0f
@@ -165,6 +166,9 @@ float quiescence(float alpha, float beta, long* nodes) {
     Move* moves = chess_get_legal_moves(board, &len_moves);
     orderMoves(moves, len_moves);
     bool is_check = chess_in_check(board);
+    if (len_moves == 0 && !is_check){ // can probably be thrown out for tokens later
+        bestValue = 0;
+    }
 
     for (int i = 0; i < len_moves; i++) {
         // maybe invert and wrap everything
