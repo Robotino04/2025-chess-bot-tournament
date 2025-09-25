@@ -1,4 +1,5 @@
 #include "chessapi.h"
+#include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
@@ -11,6 +12,24 @@
 static Board* board;
 static uint64_t time_left;
 
+// 256 MB currently
+#define TRANSPOSITION_SIZE (1 << 25)
+
+enum {
+    TYPE_EXACT,
+    TYPE_UPPER_BOUND,
+    TYPE_LOWER_BOUND
+};
+
+typedef struct {
+    float eval;
+    int depth;
+} TranspositionEntry;
+TranspositionEntry* transposition_table;
+// TODO: remove stats
+uint64_t hashes_used = 0;
+
+
 // TODO
 // - [ ] macro away the board parameter: #define chess_get_legal_moves(...) chess_get_legal_moves(board, __VA_ARGS__)
 // - [ ] remove braces of single-line if-statements
@@ -20,6 +39,7 @@ static uint64_t time_left;
 // - [ ] test without custom libchess build
 // - [ ] remove all const
 // - [ ] make all macros single line
+// - [ ] remove stats and printing
 
 /*
 int countBit1Fast(unsigned long n) {
@@ -166,7 +186,7 @@ float quiescence(float alpha, float beta, long* nodes) {
     Move* moves = chess_get_legal_moves(board, &len_moves);
     orderMoves(moves, len_moves);
     bool is_check = chess_in_check(board);
-    if (len_moves == 0 && !is_check){ // can probably be thrown out for tokens later
+    if (len_moves == 0 && !is_check) { // can probably be thrown out for tokens later
         bestValue = 0;
     }
 
@@ -206,6 +226,18 @@ float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
         return quiescence(alpha, beta, nodes);
     }
 
+    // TODO: remove assert
+    static_assert(
+        (TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0,
+        "TRANSPOSITION_SIZE isn't a power of two"
+    );
+    uint64_t hash = chess_zobrist_key(board);
+    hash = (hash ^ (hash >> 32)) & (TRANSPOSITION_SIZE - 1); // only works for powers of two
+    TranspositionEntry* entry = &transposition_table[hash];
+    if (entry->depth >= depthleft) {
+        return entry->eval;
+    }
+
     // quiescence will also instantly return 0 for draws
     // this saves a bit of performance
     // TODO: inline
@@ -240,11 +272,26 @@ float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
 done:
 
     chess_free_moves_array(moves);
+
+    // TODO: maybe redundant, but lets leave it here for now
+    if (entry->depth <= depthleft) {
+        // TODO: stats
+        if (entry->depth == -1) {
+            hashes_used++;
+        }
+
+        entry->eval = bestValue;
+        entry->depth = depthleft;
+    }
+
     return bestValue;
 }
 
 
 int main(int argc, char* argv[]) {
+    // TODO: inline assignment into memset
+    transposition_table = malloc(sizeof(TranspositionEntry) * TRANSPOSITION_SIZE);
+    memset(transposition_table, 0xFF, sizeof(TranspositionEntry) * TRANSPOSITION_SIZE);
     while (true) {
         board = chess_get_board();
 
@@ -277,11 +324,12 @@ int main(int argc, char* argv[]) {
                 goto search_canceled;
             }
             printf(
-                "info depth %d score cp %d nodes %lu nps %lu time %lu\n",
+                "info depth %d score cp %d nodes %lu nps %lu hashfull %lu time %lu\n",
                 depth,
                 (int)bestValue,
                 nodes,
                 (nodes * 1000) / (chess_get_elapsed_time_millis() + 1),
+                hashes_used * 1000 / TRANSPOSITION_SIZE,
                 chess_get_elapsed_time_millis()
             );
             fflush(stdout);
