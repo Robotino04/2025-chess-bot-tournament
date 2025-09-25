@@ -1,6 +1,9 @@
-.PHONY: all clean
+.PHONY: all clean measure
 
-all: example_bot
+all: measure example_bot
+
+measure: example_bot.c
+	java -jar ~/Downloads/toknt.jar example_bot.c
 
 example_bot: example_bot.c
 	gcc -std=c23 -O3 -o example_bot example_bot.c -L. -lchess -lm
