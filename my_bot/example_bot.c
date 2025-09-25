@@ -19,6 +19,7 @@ static uint64_t time_left;
 // - [ ] make `nodes` global
 // - [ ] test without custom libchess build
 // - [ ] remove all const
+// - [ ] make all macros single line
 
 /*
 int countBit1Fast(unsigned long n) {
@@ -39,19 +40,8 @@ int countBit1Fast(unsigned long n) {
 // 2k5/8/2K5/8/8/8/4R3/1R6 w - - 16 9
 // 3k4/8/8/8/8/8/8/3R3K b - - 0 1
 // 8/4k3/8/4K3/8/8/8/2R5 w - - 41 22
-
-// clang-format off
-const float distance[] = {
-    3, 3, 3, 3, 3, 3, 3, 3,
-    3, 2, 2, 2, 2, 2, 2, 3,
-    3, 2, 1, 1, 1, 1, 2, 3,
-    3, 2, 1, 0, 0, 1, 2, 3,
-    3, 2, 1, 0, 0, 1, 2, 3,
-    3, 2, 1, 1, 1, 1, 2, 3,
-    3, 2, 2, 2, 2, 2, 2, 3,
-    3, 3, 3, 3, 3, 3, 3, 3,
-};
-// clang-format on
+//
+// midgame fail: r5k1/p6p/6p1/2Qb1r2/P6K/8/RP5P/6R1 w - - 0 33
 
 float material_of(PlayerColor color) {
     return (float)stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100.0f
@@ -60,6 +50,11 @@ float material_of(PlayerColor color) {
          + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500.0f
          + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900.0f;
 }
+
+#define GET_ENDGAME_WEIGHT(COLOR)                                                          \
+    chess_get_bitboard(board, COLOR, KNIGHT) | chess_get_bitboard(board, COLOR, BISHOP)    \
+        | chess_get_bitboard(board, COLOR, ROOK) | chess_get_bitboard(board, COLOR, QUEEN) \
+        | chess_get_bitboard(board, COLOR, KING)
 
 float static_eval_me(PlayerColor color) {
     // TODO: remove before submission
@@ -71,24 +66,18 @@ float static_eval_me(PlayerColor color) {
     float material = material_of(color);
     const float material2 = material_of(color ^ 1);
 
-    float endgame_weight =
-        (1.0f
-         - (((float)stdc_count_ones_ul(
-                chess_get_bitboard(board, WHITE, PAWN) | chess_get_bitboard(board, WHITE, KNIGHT)
-                | chess_get_bitboard(board, WHITE, BISHOP) | chess_get_bitboard(board, WHITE, ROOK)
-                | chess_get_bitboard(board, WHITE, QUEEN) | chess_get_bitboard(board, WHITE, KING)
-                | chess_get_bitboard(board, BLACK, PAWN) | chess_get_bitboard(board, BLACK, KNIGHT)
-                | chess_get_bitboard(board, BLACK, BISHOP) | chess_get_bitboard(board, BLACK, ROOK)
-                | chess_get_bitboard(board, BLACK, QUEEN) | chess_get_bitboard(board, BLACK, KING)
-            ))
-            / 32.0f));
+    float endgame_weight = (1.0f - (((float)stdc_count_ones_ul(GET_ENDGAME_WEIGHT(WHITE) | GET_ENDGAME_WEIGHT(BLACK))) / 16.0f));
 
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
     int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color ^ 1, KING));
 
     if (material > material2 + 200) {
-        material += distance[king2] * endgame_weight * 10.0f;
-        material += (14 - (abs(king % 8 - king2 % 8) + abs(king / 8 - king2 / 8))) * endgame_weight * 0.5f;
+        int file = king2 % 8;
+        int rank = king2 / 8;
+        int dist_to_edge = fmin(file, 7 - file) + fmin(rank, 7 - rank);
+        material += (7 - dist_to_edge) * endgame_weight * 5.0f;
+
+        material += (14 - (abs(king % 8 - king2 % 8) + abs(king / 8 - king2 / 8))) * endgame_weight * 1.0f;
     }
 
     return material;
@@ -258,7 +247,7 @@ int main(int argc, char* argv[]) {
         // TODO: divide by 20 to allow full-game time management
         time_left = chess_get_time_millis(); // + increment /2 if we had that
 
-        for (int depth = 1; depth < 10; depth++) {
+        for (int depth = 1; depth < 100; depth++) {
             float bestValue = -INFINITY;
             long nodes = 0;
             for (int i = 0; i < len_moves; i++) {
