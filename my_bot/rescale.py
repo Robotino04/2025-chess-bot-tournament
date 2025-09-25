@@ -1,5 +1,6 @@
 import re
 
+
 def parse_results(text):
     players = []
     in_table = False
@@ -10,14 +11,20 @@ def parse_results(text):
         if in_table and line.strip() == "":
             break
         if in_table:
-            match = re.match(r"\s*\d+\s+(.+?)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+([\d.]+%)\s+([\d.]+%)", line)
+            match = re.match(
+                r"\s*\d+\s+(.+?)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+([\d.]+%)\s+([\d.]+%)",
+                line,
+            )
             if match:
                 name = match.group(1).strip()
                 elo = int(match.group(2))
                 players.append((name, elo))
     return players
 
-def rescale_elos_two_points(players, ref1_name, ref1_target_elo, ref2_name, ref2_target_elo):
+
+def rescale_elos_two_points(
+    players, ref1_name, ref1_target_elo, ref2_name, ref2_target_elo
+):
     ref1 = next((p for p in players if p[0] == ref1_name), None)
     ref2 = next((p for p in players if p[0] == ref2_name), None)
     if not ref1 or not ref2:
@@ -39,23 +46,31 @@ def rescale_elos_two_points(players, ref1_name, ref1_target_elo, ref2_name, ref2
         scaled.append((name, elo, corrected))
     return scaled
 
-def print_results(scaled_players, ref1_name, ref1_target_elo, ref2_name, ref2_target_elo):
-    print(f"\nCorrected Elos (using anchors: '{ref1_name}' = {ref1_target_elo}, '{ref2_name}' = {ref2_target_elo}):\n")
+
+def print_results(
+    scaled_players, ref1_name, ref1_target_elo, ref2_name, ref2_target_elo
+):
+    print(
+        f"\nCorrected Elos (using anchors: '{ref1_name}' = {ref1_target_elo}, '{ref2_name}' = {ref2_target_elo}):\n"
+    )
     print(f"{'Engine':30} {'Raw Elo':>10} {'Corrected Elo':>15}")
     print("-" * 60)
     for name, raw, corrected in scaled_players:
         print(f"{name:30} {raw:10} {corrected:15}")
+
 
 # Example usage
 if __name__ == "__main__":
     # Paste your tournament result here as a multiline string
     result_text = """
 Rank Name                          Elo     +/-   Games   Score    Draw 
-   1 Stockfish 1500                368      30    1200   89.3%    3.7% 
-   2 Stockfish 1320                203      22    1200   76.3%    8.4% 
-   3 NB Latest                     -92      17    1200   37.0%   26.2% 
-   4 NB v2_no_additional_check    -121      17    1200   33.3%   29.8% 
-   5 NB v1                        -313      19    1200   14.2%   27.5%
+   1 Stockfish 1500                452      42     900   93.1%    3.3% 
+   2 Stockfish 1320                227      26     900   78.7%    7.3% 
+   3 NB Latest                      11      18     900   51.6%   34.2% 
+   4 NB v3_no_rechecks             -68      19     900   40.4%   29.2% 
+   5 NB v4_transpos               -120      20     900   33.4%   24.4% 
+   6 NB v5_good_transpos          -140      22     900   30.8%   16.8% 
+   7 NB v2_no_additional_check    -220      18     900   22.0%   39.1%
     """
 
     ref1 = "Stockfish 1320"
@@ -65,6 +80,7 @@ Rank Name                          Elo     +/-   Games   Score    Draw
     ref2_target = 1500
 
     players = parse_results(result_text)
-    scaled_players = rescale_elos_two_points(players, ref1, ref1_target, ref2, ref2_target)
+    scaled_players = rescale_elos_two_points(
+        players, ref1, ref1_target, ref2, ref2_target
+    )
     print_results(scaled_players, ref1, ref1_target, ref2, ref2_target)
-
