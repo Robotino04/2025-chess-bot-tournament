@@ -1,5 +1,8 @@
 from __future__ import annotations
-from typing import Iterable
+from ctypes import BigEndianStructure
+import enum
+from random import betavariate
+from typing import Any, Iterable
 
 import clang.cindex
 import re
@@ -10,6 +13,9 @@ import itertools
 import tempfile
 import subprocess
 import os
+from pprint import pprint
+from collections import defaultdict
+from dataclasses import dataclass
 
 from pcpp import Action, OutputDirective, Preprocessor
 from io import StringIO
@@ -110,8 +116,7 @@ clang.cindex.Config.set_compatibility_check(False)
 index = clang.cindex.Index.create()
 
 
-def count_tokens(src: str):
-    # Parse the translation unit
+def get_tokens(src: str) -> list[clang.cindex.Token | FakeToken]:
     tu = index.parse(
         "file.c",
         unsaved_files=[("file.c", src)],
@@ -119,11 +124,16 @@ def count_tokens(src: str):
         options=clang.cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD,
     )
 
-    tokens = [
+    return [
         t
         for t in tu.get_tokens(extent=tu.cursor.extent)
         if t.kind != clang.cindex.TokenKind.COMMENT
     ]
+
+
+def count_tokens(src: str):
+    # Parse the translation unit
+    tokens = get_tokens(src)
 
     return len(tokens) + 1
 
@@ -232,6 +242,155 @@ def pipeline(src: str, enabled_macros: list[str]) -> str:
 
     return src
 
+
+@dataclass
+class FakeLocation:
+    pass
+
+
+@dataclass
+class FakeToken:
+    def __init__(self, spelling: str) -> None:
+        self.spelling = spelling
+        self.location = FakeLocation()
+
+    spelling: str
+    location: FakeLocation
+
+
+@dataclass
+class Subdivision:
+    tokens: list[clang.cindex.Token | FakeToken]
+    start: int
+    end: int
+
+    def hashable(self) -> tuple[str, ...]:
+        return tuple(t.spelling for t in self.tokens)
+
+
+def unique_lists_with_counts(
+    subdivisions: list[Subdivision],
+) -> list[tuple[Subdivision, int]]:
+    counts: defaultdict[tuple[str, ...], tuple[int, int, int]] = defaultdict(
+        lambda: (0, -1, -1)
+    )
+    unique: list[Subdivision] = []
+    seen: set[tuple[str, ...]] = set()
+
+    for subdiv in subdivisions:
+        oldcount, cstart, cend = counts[subdiv.hashable()]
+        if subdiv.start > cend:
+            counts[subdiv.hashable()] = (oldcount + 1, subdiv.start, subdiv.end)
+        if subdiv.hashable() not in seen:
+            seen.add(subdiv.hashable())
+            unique.append(subdiv)
+
+    # Convert tuple keys back to lists for the output
+    result = [(t, counts[t.hashable()][0]) for t in unique]
+    return result
+
+
+def gen_subdivisions(
+    tokens: list[clang.cindex.Token | FakeToken],
+) -> list[tuple[Subdivision, int]]:
+    return unique_lists_with_counts(
+        sorted(
+            [
+                Subdivision(tokens[start : end + 1], start, end)
+                for start, _ in enumerate(tokens)
+                for end in range(start, len(tokens))
+            ],
+            key=lambda subdiv: subdiv.start,
+        )
+    )
+
+
+def line_fallback(
+    fb: int,
+    prev: clang.cindex.SourceLocation | FakeLocation,
+    loc: clang.cindex.SourceLocation | FakeLocation,
+):
+    if isinstance(loc, FakeLocation):
+        return 9999999
+
+    return loc.line
+
+
+def reconstruct_source(tokens: list[clang.cindex.Token | FakeToken]) -> str:
+    out = ""
+    prev = FakeLocation()
+    line = line_fallback(-1, prev, tokens[0].location)
+    for token in tokens:
+        if line_fallback(line, prev, token.location) != line:
+            line = line_fallback(line, prev, token.location)
+            prev = token.location
+            out += "\n"
+        out += " " + token.spelling
+    return out
+
+
+initial_code = """
+ # define x \
+ int a = 2 + 2 + 2 + 2 ;
+ 
+
+ # define test
+ x x x x
+"""
+print("Initial tokens:", count_tokens(initial_code))
+tokens = get_tokens(initial_code)
+print(tokens)
+
+adjusted_subdivs = [
+    (subdiv, frequency * (1 - len(subdiv.tokens)) + 2 + 1 + len(subdiv.tokens))
+    for subdiv, frequency in gen_subdivisions(tokens)
+]
+
+adjusted_subdivs.sort(key=lambda x: x[1], reverse=False)
+
+pprint(adjusted_subdivs)
+best_subdiv = adjusted_subdivs[0]
+
+pprint(best_subdiv)
+best_subdiv = best_subdiv[0]
+
+new_macro = FakeToken("y")
+definition = (
+    [
+        FakeToken("#"),
+        FakeToken("define"),
+        new_macro,
+        FakeToken("\\"),
+    ]
+    + best_subdiv.tokens
+    + [
+        FakeToken("\n"),
+    ]
+)
+
+i = 0
+while i < len(tokens):
+    found = True
+    for j, _ in enumerate(best_subdiv.tokens):
+        if (i + j) >= len(tokens):
+            found = False
+            break
+
+        if tokens[i + j].spelling != best_subdiv.tokens[j].spelling:
+            found = False
+            break
+
+    if found:
+        tokens[i : i + len(best_subdiv.tokens)] = [new_macro]
+    i += 1
+
+tokens = definition + tokens
+
+pprint(tokens)
+
+print(reconstruct_source(tokens))
+
+exit(0)
 
 initial_code = open("example_bot.c", "r").read()
 print("Initial tokens:", count_tokens(initial_code))
