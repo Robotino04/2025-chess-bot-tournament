@@ -3,10 +3,14 @@
 #include <math.h>
 #include <stdbit.h>
 
-// inline-macros-start
-// #define STATS(...)
-#define STATS(...) __VA_ARGS__
-#include <stdio.h>
+#ifdef __PCPP__
+#else
+    #define STATS
+    #include <stdio.h>
+
+    #define STATIC_ASSERTS
+#endif
+
 
 // TODO: write as single number
 #define TRANSPOSITION_SIZE (1 << 25)
@@ -14,12 +18,13 @@
 #define TYPE_EXACT 0
 #define TYPE_UPPER_BOUND 1
 #define TYPE_LOWER_BOUND 2
-// inline-macros-end
 
 
 Board* board;
 uint64_t time_left;
-STATS(uint64_t nodes;)
+#ifdef STATS
+uint64_t nodes;
+#endif
 
 struct {
     int64_t hash, depth;
@@ -27,7 +32,9 @@ struct {
     float eval;
 } transposition_table[TRANSPOSITION_SIZE];
 
-STATS(uint64_t hashes_used = 0;)
+#ifdef STATS
+uint64_t hashes_used = 0;
+#endif
 
 
 // TODO
@@ -74,15 +81,18 @@ float material_of(PlayerColor color) {
 
 float static_eval_me(PlayerColor color) {
     // TODO: remove before submission
+#ifdef STATIC_ASSERTS
     static_assert(WHITE == 0, "WHITE isn't 0");
     static_assert(BLACK == 1, "BLACK isn't 1");
     static_assert((WHITE ^ 1) == BLACK, "WHITE isn't inverse of BLACK");
     static_assert((BLACK ^ 1) == WHITE, "BLACK isn't inverse of WHITE");
+#endif
 
     float material = material_of(color);
     float material2 = material_of(color ^ 1);
 
-    float endgame_weight = (1.0f - (((float)stdc_count_ones_ul(GET_ENDGAME_WEIGHT(WHITE) | GET_ENDGAME_WEIGHT(BLACK))) / 16.0f));
+    float endgame_weight = 1.0f
+                         - (stdc_count_ones_ul(/*parse*/ GET_ENDGAME_WEIGHT(WHITE) | GET_ENDGAME_WEIGHT(BLACK)) / 16.0f);
 
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
     int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color ^ 1, KING));
@@ -111,7 +121,8 @@ float static_eval(GameState state) {
     return (chess_is_white_turn(board) ? 1.0f : -1.0f) * (static_eval_me(WHITE) - static_eval_me(BLACK));
 }
 
-#define GEN_HASH                                                                \
+
+#define GEN_HASH /* parse fix */                                                \
     uint64_t hash_orig = chess_zobrist_key(board);                              \
     /* only works for powers of two */                                          \
     uint64_t hash = (hash_orig ^ (hash_orig >> 32)) & (TRANSPOSITION_SIZE - 1); \
@@ -179,7 +190,9 @@ float quiescence(float alpha, float beta) {
     if (chess_get_elapsed_time_millis() > time_left) {
         return 54321.0f;
     }
-    STATS(++nodes;)
+#ifdef STATS
+    ++nodes;
+#endif
 
     GameState state = chess_get_game_state(board);
     if (state == GAME_STALEMATE) {
@@ -235,10 +248,13 @@ float alphaBeta(float alpha, float beta, int depthleft) {
     float alpha_orig = alpha;
 
     // TODO: remove assert
+#ifdef STATIC_ASSERTS
     static_assert(
         (TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0,
         "TRANSPOSITION_SIZE isn't a power of two"
     );
+#endif
+
     GEN_HASH
     if (entry->depth >= depthleft && entry->hash == hash_orig) {
         // TODO: move into a single if
@@ -261,7 +277,9 @@ float alphaBeta(float alpha, float beta, int depthleft) {
         return 0;
     }
 
-    STATS(++nodes;)
+#ifdef STATS
+    ++nodes;
+#endif
 
     float bestValue = -INFINITY;
     int len_moves;
@@ -290,11 +308,13 @@ done:
 
     // TODO: maybe redundant, but lets leave it here for now
     if (entry->depth <= depthleft) {
-        STATS({
-            if (entry->depth == -1) {
-                hashes_used++;
-            }
-        })
+
+#ifdef STATS
+        if (entry->depth == -1) {
+            hashes_used++;
+        }
+#endif
+
 
         entry->hash = hash_orig;
         entry->eval = bestValue;
@@ -339,18 +359,19 @@ int main(int argc, char* argv[]) {
             if (chess_get_elapsed_time_millis() > time_left) {
                 goto search_canceled;
             }
-            STATS({
-                printf(
-                    "info depth %d score cp %d nodes %lu nps %lu hashfull %lu time %lu\n",
-                    depth,
-                    (int)bestValue,
-                    nodes,
-                    (nodes * 1000) / (chess_get_elapsed_time_millis() + 1),
-                    hashes_used * 1000 / TRANSPOSITION_SIZE,
-                    chess_get_elapsed_time_millis()
-                );
-                fflush(stdout);
-            })
+#ifdef STATS
+            printf(
+                "info depth %d score cp %d nodes %lu nps %lu hashfull %lu time %lu\n",
+                depth,
+                (int)bestValue,
+                nodes,
+                (nodes * 1000) / (chess_get_elapsed_time_millis() + 1),
+                hashes_used * 1000 / TRANSPOSITION_SIZE,
+                chess_get_elapsed_time_millis()
+            );
+            fflush(stdout);
+#endif
+
 
             prevBestMove = bestMove;
             if (bestValue == INFINITY) {
