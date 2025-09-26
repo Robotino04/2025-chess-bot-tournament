@@ -1,5 +1,4 @@
 #include "chessapi.h"
-#include <string.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdbit.h>
@@ -17,13 +16,11 @@ enum {
     TYPE_LOWER_BOUND
 };
 
-typedef struct {
-    uint64_t hash;
-    float eval;
-    int depth;
+struct {
+    int64_t hash, depth;
     int type;
-} TranspositionEntry;
-TranspositionEntry* transposition_table;
+    float eval;
+} transposition_table[TRANSPOSITION_SIZE];
 // TODO: remove stats
 uint64_t hashes_used = 0;
 
@@ -115,7 +112,7 @@ float static_eval(GameState state) {
     uint64_t hash_orig = chess_zobrist_key(board);                              \
     /* only works for powers of two */                                          \
     uint64_t hash = (hash_orig ^ (hash_orig >> 32)) & (TRANSPOSITION_SIZE - 1); \
-    TranspositionEntry* entry = &transposition_table[hash];
+    auto entry = &transposition_table[hash];
 
 
 float scoreMove(Move* move) {
@@ -310,9 +307,6 @@ done:
 
 
 int main(int argc, char* argv[]) {
-    // TODO: inline assignment into memset
-    transposition_table = malloc(sizeof(TranspositionEntry) * TRANSPOSITION_SIZE);
-    memset(transposition_table, 0xFF, sizeof(TranspositionEntry) * TRANSPOSITION_SIZE);
     while (true) {
         board = chess_get_board();
 
