@@ -2,10 +2,15 @@
 #include <stdlib.h>
 #include <math.h>
 #include <stdbit.h>
-#include <stdio.h>
+
+//#define STATS(...)
+#define STATS(...) __VA_ARGS__
+#include<stdio.h>
+
 
 Board* board;
-uint64_t time_left, nodes;
+uint64_t time_left;
+STATS(uint64_t nodes;)
 
 #define TRANSPOSITION_SIZE (1 << 25)
 
@@ -21,8 +26,8 @@ struct {
     int type;
     float eval;
 } transposition_table[TRANSPOSITION_SIZE];
-// TODO: remove stats
-uint64_t hashes_used = 0;
+
+STATS(uint64_t hashes_used = 0;)
 
 
 // TODO
@@ -30,8 +35,6 @@ uint64_t hashes_used = 0;
 // - [ ] remove braces of single-line if-statements
 // - [ ] make common parameters globals
 // - [ ] test without custom libchess build
-// - [ ] remove all const
-// - [ ] remove stats and printing
 
 /*
 int countBit1Fast(unsigned long n) {
@@ -176,7 +179,7 @@ float quiescence(float alpha, float beta) {
     if (chess_get_elapsed_time_millis() > time_left) {
         return 54321.0f;
     }
-    ++nodes;
+    STATS(++nodes;)
 
     GameState state = chess_get_game_state(board);
     if (state == GAME_STALEMATE) {
@@ -198,23 +201,21 @@ float quiescence(float alpha, float beta) {
 
     for (int i = 0; i < len_moves; i++) {
         // maybe invert and wrap everything
-        if (!(moves[i].capture || is_check)) {
-            continue;
-        }
+        if (moves[i].capture || is_check) {
+            chess_make_move(board, moves[i]);
+            float score = -quiescence(-beta, -alpha);
+            chess_undo_move(board);
 
-        chess_make_move(board, moves[i]);
-        float score = -quiescence(-beta, -alpha);
-        chess_undo_move(board);
+            if (chess_get_elapsed_time_millis() > time_left) {
+                bestValue = 54321.f;
+                break;
+            }
 
-        if (chess_get_elapsed_time_millis() > time_left) {
-            bestValue = 54321.f;
-            break;
-        }
-
-        bestValue = fmaxf(score, bestValue);
-        alpha = fmaxf(score, alpha);
-        if (score >= beta) {
-            break;
+            bestValue = fmaxf(score, bestValue);
+            alpha = fmaxf(score, alpha);
+            if (score >= beta) {
+                break;
+            }
         }
     }
 done:
@@ -260,7 +261,7 @@ float alphaBeta(float alpha, float beta, int depthleft) {
         return 0;
     }
 
-    ++nodes;
+    STATS(++nodes;)
 
     float bestValue = -INFINITY;
     int len_moves;
@@ -289,10 +290,11 @@ done:
 
     // TODO: maybe redundant, but lets leave it here for now
     if (entry->depth <= depthleft) {
-        // TODO: stats
-        if (entry->depth == -1) {
-            hashes_used++;
-        }
+        STATS({
+            if (entry->depth == -1) {
+                hashes_used++;
+            }
+        })
 
         entry->hash = hash_orig;
         entry->eval = bestValue;
@@ -337,16 +339,19 @@ int main(int argc, char* argv[]) {
             if (chess_get_elapsed_time_millis() > time_left) {
                 goto search_canceled;
             }
-            printf(
-                "info depth %d score cp %d nodes %lu nps %lu hashfull %lu time %lu\n",
-                depth,
-                (int)bestValue,
-                nodes,
-                (nodes * 1000) / (chess_get_elapsed_time_millis() + 1),
-                hashes_used * 1000 / TRANSPOSITION_SIZE,
-                chess_get_elapsed_time_millis()
-            );
-            fflush(stdout);
+            STATS({
+                printf(
+                    "info depth %d score cp %d nodes %lu nps %lu hashfull %lu time %lu\n",
+                    depth,
+                    (int)bestValue,
+                    nodes,
+                    (nodes * 1000) / (chess_get_elapsed_time_millis() + 1),
+                    hashes_used * 1000 / TRANSPOSITION_SIZE,
+                    chess_get_elapsed_time_millis()
+                );
+                fflush(stdout);
+            })
+
             prevBestMove = bestMove;
             if (bestValue == INFINITY) {
                 break;
