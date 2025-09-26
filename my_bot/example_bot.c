@@ -1,16 +1,12 @@
 #include "chessapi.h"
 #include <string.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
-#include <stdio.h>
-#include <limits.h>
-#include <assert.h>
 #include <stdbit.h>
+#include <stdio.h>
 
-// remove static
-static Board* board;
-static uint64_t time_left;
+Board* board;
+uint64_t time_left, nodes;
 
 #define TRANSPOSITION_SIZE (1 << 25)
 
@@ -36,11 +32,8 @@ uint64_t hashes_used = 0;
 // - [ ] macro away the board parameter: #define chess_get_legal_moves(...) chess_get_legal_moves(board, __VA_ARGS__)
 // - [ ] remove braces of single-line if-statements
 // - [ ] make common parameters globals
-// - [ ] typedef unsigned long
-// - [ ] make `nodes` global
 // - [ ] test without custom libchess build
 // - [ ] remove all const
-// - [ ] make all macros single line
 // - [ ] remove stats and printing
 
 /*
@@ -67,11 +60,11 @@ int countBit1Fast(unsigned long n) {
 // prevent promotion: 8/3K4/4P3/8/8/8/6k1/7q w - - 0 1
 
 float material_of(PlayerColor color) {
-    return (float)stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100.0f
-         + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300.0f
-         + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP)) * 320.0f
-         + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500.0f
-         + (float)stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900.0f;
+    return stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100.0f
+         + stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300.0f
+         + stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP)) * 320.0f
+         + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500.0f
+         + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900.0f;
 }
 
 #define GET_ENDGAME_WEIGHT(COLOR)                                                          \
@@ -87,7 +80,7 @@ float static_eval_me(PlayerColor color) {
     static_assert((BLACK ^ 1) == WHITE, "BLACK isn't inverse of WHITE");
 
     float material = material_of(color);
-    const float material2 = material_of(color ^ 1);
+    float material2 = material_of(color ^ 1);
 
     float endgame_weight = (1.0f - (((float)stdc_count_ones_ul(GET_ENDGAME_WEIGHT(WHITE) | GET_ENDGAME_WEIGHT(BLACK))) / 16.0f));
 
@@ -97,7 +90,7 @@ float static_eval_me(PlayerColor color) {
     if (material > material2 + 200) {
         int file = king2 % 8;
         int rank = king2 / 8;
-        int dist_to_edge = fmin(file, 7 - file) + fmin(rank, 7 - rank);
+        int dist_to_edge = fminf(file, 7 - file) + fminf(rank, 7 - rank);
         material += (7 - dist_to_edge) * endgame_weight * 5.0f;
 
         material += (14 - (abs(king % 8 - king2 % 8) + abs(king / 8 - king2 / 8))) * endgame_weight * 1.0f;
@@ -142,7 +135,7 @@ float scoreMove(Move* move) {
     }
 
     // probably possible with only checking once
-    score += fmax(entry->depth - 1, 0) * 100 + (entry->depth >= 2 ? entry->eval : 0);
+    score += fmaxf(entry->depth - 1, 0) * 100 + (entry->depth >= 2 ? entry->eval : 0);
 
 
     /* maybe if we get the bitboards
@@ -182,11 +175,11 @@ void orderMoves(Move* moves, int len) {
 }
 
 
-float quiescence(float alpha, float beta, long* nodes) {
+float quiescence(float alpha, float beta) {
     if (chess_get_elapsed_time_millis() > time_left) {
         return 54321.0f;
     }
-    ++*nodes;
+    ++nodes;
 
     GameState state = chess_get_game_state(board);
     if (state == GAME_STALEMATE) {
@@ -213,7 +206,7 @@ float quiescence(float alpha, float beta, long* nodes) {
         }
 
         chess_make_move(board, moves[i]);
-        float score = -quiescence(-beta, -alpha, nodes);
+        float score = -quiescence(-beta, -alpha);
         chess_undo_move(board);
 
         if (chess_get_elapsed_time_millis() > time_left) {
@@ -233,13 +226,13 @@ done:
     return bestValue;
 }
 
-float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
+float alphaBeta(float alpha, float beta, int depthleft) {
     if (chess_get_elapsed_time_millis() > time_left) {
         return -12345.f;
     }
 
     if (depthleft <= 0) {
-        return quiescence(alpha, beta, nodes);
+        return quiescence(alpha, beta);
     }
     float alpha_orig = alpha;
 
@@ -270,7 +263,7 @@ float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
         return 0;
     }
 
-    ++*nodes;
+    ++nodes;
 
     float bestValue = -INFINITY;
     int len_moves;
@@ -279,7 +272,7 @@ float alphaBeta(float alpha, float beta, int depthleft, long* nodes) {
 
     for (int i = 0; i < len_moves; i++) {
         chess_make_move(board, moves[i]);
-        float score = -alphaBeta(-beta, -alpha, depthleft - 1, nodes);
+        float score = -alphaBeta(-beta, -alpha, depthleft - 1);
         chess_undo_move(board);
 
         if (chess_get_elapsed_time_millis() > time_left) {
@@ -333,10 +326,9 @@ int main(int argc, char* argv[]) {
 
         for (int depth = 1; depth < 100; depth++) {
             float bestValue = -INFINITY;
-            long nodes = 0;
             for (int i = 0; i < len_moves; i++) {
                 chess_make_move(board, moves[i]);
-                float score = -alphaBeta(-INFINITY, INFINITY, depth, &nodes);
+                float score = -alphaBeta(-INFINITY, INFINITY, depth);
                 chess_undo_move(board);
 
                 if (chess_get_elapsed_time_millis() > time_left) {
