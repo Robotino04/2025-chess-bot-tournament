@@ -7,6 +7,9 @@ from pcpp.parser import LexToken, Macro
 from pcpp.preprocessor import STRING_TYPES
 from tqdm import tqdm
 import itertools
+import tempfile
+import subprocess
+import os
 
 from pcpp import Action, OutputDirective, Preprocessor
 from io import StringIO
@@ -150,6 +153,86 @@ def powerset(iterable: Iterable):
     )
 
 
+def clang_tidy(
+    source_code: str,
+) -> str:
+    checks = [
+        "-*",
+        "readability-else-after-return",
+        "readability-redundant-*",
+        "readability-simplify-*",
+        "readability-container-size-empty",
+        "readability-container-contains",
+        "readability-qualified-auto",
+        "readability-static-accessed-through-instance",
+        "readability-convert-member-functions-to-static",
+        "readability-delete-null-pointer",
+        "readability-duplicate-include",
+        "-readability-uppercase-literal-suffix",
+    ]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_path = os.path.join(tmpdir, "temp.c")
+
+        with open(source_path, "w") as f:
+            f.write(source_code)
+
+        result = subprocess.run(
+            [
+                "clang-tidy",
+                source_path,
+                f"-checks={','.join(checks)}",
+                "--fix",
+                "--quiet",
+                "--",
+                "-std=c23",
+                "-I../src/c/",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            print("clang-tidy stderr:", result.stderr)
+            print("clang-tidy stdout:", result.stdout)
+            raise RuntimeError("clang-tidy failed")
+
+        with open(source_path, "r") as f:
+            updated_code = f.read()
+
+        return updated_code
+
+
+def clang_format(source_code: str) -> str:
+    result = subprocess.run(
+        ["clang-format", "--style=file:minimal.clang-format"],
+        input=source_code,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout
+
+
+def uncrustify(source_code: str) -> str:
+    result = subprocess.run(
+        ["uncrustify", "-lc", "-c", "uncrustify.ini"],
+        input=source_code,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout
+
+
+def pipeline(src: str, enabled_macros: list[str]) -> str:
+    src = expand_macros(src, enabled_macros)
+
+    src = clang_tidy(src)
+    src = uncrustify(src)
+    src = clang_format(src)
+
+    return src
+
+
 initial_code = open("example_bot.c", "r").read()
 print("Initial tokens:", count_tokens(initial_code))
 
@@ -159,7 +242,7 @@ sorted_macros = sorted(
     [
         (
             enabled_macros,
-            count_tokens(expand_macros(initial_code, list(enabled_macros))),
+            count_tokens(pipeline(initial_code, list(enabled_macros))),
         )
         for enabled_macros in tqdm(list(powerset(all_macros)))
     ],
@@ -167,7 +250,7 @@ sorted_macros = sorted(
 )
 print("Best Macros:", sorted_macros[:10])
 
-expanded_code = expand_macros(initial_code, list(sorted_macros[0][0]))
+expanded_code = pipeline(initial_code, list(sorted_macros[0][0]))
 print("Optimized tokens:", count_tokens(expanded_code))
 
 open("example_bot_minimized.c", "w").write(expanded_code)
