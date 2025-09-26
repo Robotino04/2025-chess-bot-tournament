@@ -14,6 +14,14 @@ in
     packages = [
       chess-lib
       pkgs.openjdk24
-      pkgs.python3
+      (pkgs.python3.withPackages (ps: [
+        ps.libclang
+
+        ps.pcpp
+        ps.ply
+
+        ps.tqdm
+        ps.rich
+      ]))
     ];
   }
