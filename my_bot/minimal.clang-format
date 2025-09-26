@@ -1,0 +1,9 @@
+BasedOnStyle: LLVM
+AllowShortIfStatementsOnASingleLine: Always
+AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Always
+AllowShortFunctionsOnASingleLine: Inline
+BreakBeforeBraces: Attach
+SpacesInParentheses: false
+SpaceInEmptyParentheses: false
+RemoveBracesLLVM: true
