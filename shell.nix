@@ -13,6 +13,8 @@ in
   pkgs.mkShell {
     packages = [
       chess-lib
+      pkgs.clang-tools
+      pkgs.uncrustify
       pkgs.openjdk24
       (pkgs.python3.withPackages (ps: [
         ps.libclang
