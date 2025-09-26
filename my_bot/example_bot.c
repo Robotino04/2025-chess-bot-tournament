@@ -3,23 +3,23 @@
 #include <math.h>
 #include <stdbit.h>
 
-//#define STATS(...)
+// inline-macros-start
+// #define STATS(...)
 #define STATS(...) __VA_ARGS__
-#include<stdio.h>
+#include <stdio.h>
+
+// TODO: write as single number
+#define TRANSPOSITION_SIZE (1 << 25)
+
+#define TYPE_EXACT 0
+#define TYPE_UPPER_BOUND 1
+#define TYPE_LOWER_BOUND 2
+// inline-macros-end
 
 
 Board* board;
 uint64_t time_left;
 STATS(uint64_t nodes;)
-
-#define TRANSPOSITION_SIZE (1 << 25)
-
-// TODO: inline everywhere
-enum {
-    TYPE_EXACT,
-    TYPE_UPPER_BOUND,
-    TYPE_LOWER_BOUND
-};
 
 struct {
     int64_t hash, depth;
@@ -93,7 +93,7 @@ float static_eval_me(PlayerColor color) {
         int dist_to_edge = fminf(file, 7 - file) + fminf(rank, 7 - rank);
         material += (7 - dist_to_edge) * endgame_weight * 5.0f;
 
-        material += (14 - (abs(king % 8 - king2 % 8) + abs(king / 8 - king2 / 8))) * endgame_weight * 1.0f;
+        material += (14 - (abs(king % 8 - file) + abs(king / 8 - rank))) * endgame_weight * 1.0f;
     }
 
     return material;
