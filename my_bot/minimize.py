@@ -246,6 +246,7 @@ def pipeline(src: str, enabled_macros: list[str]) -> str:
     src = clang_tidy(src)
     src = uncrustify(src)
     src = clang_format(src)
+    src = src.replace("\\\n", "")
 
     return src
 
