@@ -9,6 +9,15 @@ let
       $CC -O3 -o $out/lib/libchess.so -shared bitboard.c chessapi.c -fPIC
     '';
   };
+  pythonPkgs = ps: [
+    ps.libclang
+
+    ps.pcpp
+    ps.ply
+
+    ps.tqdm
+    ps.rich
+  ];
 in
   pkgs.mkShell {
     packages = [
@@ -16,14 +25,6 @@ in
       pkgs.clang-tools
       pkgs.uncrustify
       pkgs.openjdk24
-      (pkgs.python3.withPackages (ps: [
-        ps.libclang
-
-        ps.pcpp
-        ps.ply
-
-        ps.tqdm
-        ps.rich
-      ]))
+      (pkgs.python3.withPackages pythonPkgs)
     ];
   }
