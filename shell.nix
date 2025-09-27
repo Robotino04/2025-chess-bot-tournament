@@ -19,12 +19,17 @@ let
     ps.rich
   ];
 in
-  pkgs.mkShell {
+  pkgs.mkShell rec {
     packages = [
       chess-lib
       pkgs.clang-tools
       pkgs.uncrustify
       pkgs.openjdk24
       (pkgs.python3.withPackages pythonPkgs)
+      pkgs.cargo
+      pkgs.libclang
+      pkgs.rustc
     ];
+
+    LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath packages;
   }
