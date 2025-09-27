@@ -1,0 +1,9 @@
+[package]
+name = "minimizer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clang = "2.0.0"
+itertools = "0.14.0"
+tqdm = "0.8.0"
