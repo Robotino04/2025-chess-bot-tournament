@@ -2,6 +2,7 @@ from __future__ import annotations
 from ctypes import BigEndianStructure
 import enum
 from random import betavariate
+import sys
 from typing import Any, Iterable
 
 import clang.cindex
@@ -21,6 +22,12 @@ from pcpp import Action, OutputDirective, Preprocessor
 from io import StringIO
 
 BUILTIN_MACROS = ["__DATE__", "__FILE__", "__PCPP__", "__TIME__"]
+
+__original_print = print
+
+
+def print(*args, **kwargs):
+    __original_print(*args, **kwargs, file=sys.stderr)
 
 
 class QuietPreprocessor(Preprocessor):
@@ -243,178 +250,31 @@ def pipeline(src: str, enabled_macros: list[str]) -> str:
     return src
 
 
-@dataclass
-class FakeLocation:
-    pass
+initial_code = sys.stdin.read()
+token_count = count_tokens(initial_code)
+print("Initial tokens:", token_count)
 
 
-@dataclass
-class FakeToken:
-    def __init__(self, spelling: str) -> None:
-        self.spelling = spelling
-        self.location = FakeLocation()
+token_count += 1
 
-    spelling: str
-    location: FakeLocation
-
-
-@dataclass
-class Subdivision:
-    tokens: list[clang.cindex.Token | FakeToken]
-    start: int
-    end: int
-
-    def hashable(self) -> tuple[str, ...]:
-        return tuple(t.spelling for t in self.tokens)
-
-
-def unique_lists_with_counts(
-    subdivisions: list[Subdivision],
-) -> list[tuple[Subdivision, int]]:
-    print("Counting")
-    counts: defaultdict[tuple[str, ...], tuple[int, int, int]] = defaultdict(
-        lambda: (0, -1, -1)
-    )
-    unique: list[Subdivision] = []
-    seen: set[tuple[str, ...]] = set()
-
-    for subdiv in tqdm(subdivisions):
-        oldcount, cstart, cend = counts[subdiv.hashable()]
-        if subdiv.start > cend:
-            counts[subdiv.hashable()] = (oldcount + 1, subdiv.start, subdiv.end)
-        if subdiv.hashable() not in seen:
-            seen.add(subdiv.hashable())
-            unique.append(subdiv)
-
-    # Convert tuple keys back to lists for the output
-    print("Combining")
-    result = [(t, counts[t.hashable()][0]) for t in tqdm(unique)]
-    return result
-
-
-def gen_subdivisions(
-    tokens: list[clang.cindex.Token | FakeToken],
-) -> list[tuple[Subdivision, int]]:
-    print("Generating Subdivisions")
-    subdivs = [
-        Subdivision(tokens[start : end + 1], start, end)
-        for start, _ in tqdm(list(enumerate(tokens)))
-        for end in range(start, len(tokens))
-    ]
-
-    print("Sorting")
-    subdivs = sorted(
-        subdivs,
-        key=lambda subdiv: subdiv.start,
-    )
-    return unique_lists_with_counts(subdivs)
-
-
-def line_fallback(
-    fb: int,
-    loc: clang.cindex.SourceLocation | FakeLocation,
-):
-    if isinstance(loc, FakeLocation):
-        return fb
-
-    return loc.line
-
-
-def reconstruct_source(tokens: list[clang.cindex.Token | FakeToken]) -> str:
-    out = ""
-    line = line_fallback(-1, tokens[0].location)
-    for token in tokens:
-        if line_fallback(line, token.location) != line:
-            line = line_fallback(line, token.location)
-            out += "\n"
-        out += " " + token.spelling
-    return out
-
-
-def generate_one_macro(src: str, name: str):
-    tokens = get_tokens(src)
-    print(tokens)
-
-    adjusted_subdivs = [
-        (subdiv, frequency * (1 - len(subdiv.tokens)) + 2 + 1 + len(subdiv.tokens))
-        for subdiv, frequency in gen_subdivisions(tokens)
-    ]
-
-    adjusted_subdivs.sort(key=lambda x: x[1], reverse=False)
-
-    pprint(adjusted_subdivs[0])
-    best_subdiv = adjusted_subdivs[0][0]
-
-    new_macro = FakeToken(name)
-    definition = (
+while token_count != count_tokens(initial_code):
+    token_count = count_tokens(initial_code)
+    all_macros = get_macros(initial_code)
+    print("Optimizing macros:", all_macros)
+    sorted_macros = sorted(
         [
-            FakeToken("#"),
-            FakeToken("define"),
-            new_macro,
-            FakeToken("\\"),
-        ]
-        + best_subdiv.tokens
-        + [
-            FakeToken("\n"),
-        ]
+            (
+                enabled_macros,
+                count_tokens(pipeline(initial_code, list(enabled_macros))),
+            )
+            for enabled_macros in tqdm(list(powerset(all_macros)), file=sys.stderr)
+        ],
+        key=lambda x: x[1],
     )
+    print("Enabling these macros:", sorted_macros[0])
 
-    i = 0
-    while i < len(tokens):
-        found = True
-        for j, _ in enumerate(best_subdiv.tokens):
-            if (i + j) >= len(tokens):
-                found = False
-                break
-
-            if tokens[i + j].spelling != best_subdiv.tokens[j].spelling:
-                found = False
-                break
-
-        if found:
-            tokens[i : i + len(best_subdiv.tokens)] = [new_macro]
-        i += 1
-
-    tokens = definition + tokens
-
-    pprint(tokens)
-
-    return reconstruct_source(tokens)
+    initial_code = pipeline(initial_code, list(sorted_macros[0][0]))
+    print("Current tokens:", count_tokens(initial_code))
 
 
-# initial_code = """
-#     # define x \
-#     int a = 2 + 2 + 2 + 2 ;
-#
-#
-#     # define test
-#     x x x x
-#    """
-# print("Initial tokens:", count_tokens(initial_code))
-# print(generate_one_macro(initial_code, "y"))
-
-initial_code = open("example_bot.c", "r").read()
-print("Initial tokens:", count_tokens(initial_code))
-
-
-all_macros = get_macros(initial_code)
-print("Optimizing macros:", all_macros)
-sorted_macros = sorted(
-    [
-        (
-            enabled_macros,
-            count_tokens(pipeline(initial_code, list(enabled_macros))),
-        )
-        for enabled_macros in tqdm(list(powerset(all_macros)))
-    ],
-    key=lambda x: x[1],
-)
-print("Best Macros:", sorted_macros[:10])
-
-expanded_code = pipeline(initial_code, list(sorted_macros[0][0]))
-print("Optimized tokens:", count_tokens(expanded_code))
-
-macroed = generate_one_macro(expanded_code, "new_macro")
-print("Macroed tokens:", count_tokens(macroed))
-
-open("example_bot_minimized.c", "w").write(macroed)
+__original_print(initial_code)

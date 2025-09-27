@@ -15,7 +15,9 @@ example_bot_minimized: example_bot_minimized.c
 	gcc -std=c23 -O3 -o example_bot_minimized example_bot_minimized.c -L. -lchess -lm
 
 example_bot_minimized.c: example_bot.c minimize.py
-	python3 minimize.py
+	python3 minimize.py < example_bot.c > example_bot_minimized.c
+	java -jar ~/Downloads/toknt.jar example_bot_minimized.c
+	cd minimizer && cargo run --release
 
 clean:
 	rm -f example_bot example_bot_minimized
