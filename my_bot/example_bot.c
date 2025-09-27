@@ -74,11 +74,6 @@ float material_of(PlayerColor color) {
          + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900.0f;
 }
 
-#define GET_ENDGAME_WEIGHT(COLOR)                                                          \
-    chess_get_bitboard(board, COLOR, KNIGHT) | chess_get_bitboard(board, COLOR, BISHOP)    \
-        | chess_get_bitboard(board, COLOR, ROOK) | chess_get_bitboard(board, COLOR, QUEEN) \
-        | chess_get_bitboard(board, COLOR, KING)
-
 float static_eval_me(PlayerColor color) {
     // TODO: remove before submission
 #ifdef STATIC_ASSERTS
@@ -92,7 +87,16 @@ float static_eval_me(PlayerColor color) {
     float material2 = material_of(color ^ 1);
 
     float endgame_weight = 1.0f
-                         - (stdc_count_ones_ul(/*parse*/ GET_ENDGAME_WEIGHT(WHITE) | GET_ENDGAME_WEIGHT(BLACK)) / 16.0f);
+                         - (stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT))
+                            + stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP))
+                            + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK))
+                            + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN))
+                            + stdc_count_ones_ul(chess_get_bitboard(board, color, KING))
+                            + stdc_count_ones_ul(chess_get_bitboard(board, color ^ 1, KNIGHT))
+                            + stdc_count_ones_ul(chess_get_bitboard(board, color ^ 1, BISHOP))
+                            + stdc_count_ones_ul(chess_get_bitboard(board, color ^ 1, ROOK))
+                            + stdc_count_ones_ul(chess_get_bitboard(board, color ^ 1, QUEEN))
+                            + stdc_count_ones_ul(chess_get_bitboard(board, color ^ 1, KING)) / 16.0f);
 
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
     int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color ^ 1, KING));
