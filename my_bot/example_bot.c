@@ -1,12 +1,12 @@
 #include "chessapi.h"
-#include <stdlib.h>
-#include <math.h>
-#include <stdbit.h>
+#include "stdlib.h"
+#include "math.h"
+#include "stdbit.h"
 
 #ifdef __PCPP__
 #else
     #define STATS
-    #include <stdio.h>
+    #include "stdio.h"
 
     #define STATIC_ASSERTS
 #endif
