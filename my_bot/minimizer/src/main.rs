@@ -51,10 +51,12 @@ impl Eq for Subdivision<'_, '_> {}
 fn unique_lists_with_counts<'a, 'b, 'c>(
     subdivisions: &'c [Subdivision<'a, 'b>],
 ) -> Vec<(&'c Subdivision<'a, 'b>, i32)> {
-    println!("Counting");
-    let mut counts = HashMap::with_capacity_and_hasher(subdivisions.len(), ahash::RandomState::new());
+    let mut counts =
+        HashMap::with_capacity_and_hasher(subdivisions.len(), ahash::RandomState::new());
 
-    for subdiv in subdivisions.iter()/*.tqdm()*/ {
+    for subdiv in subdivisions.iter()
+    /*.tqdm()*/
+    {
         let (oldcount, oldstart, oldend) = counts.entry(subdiv).or_insert((0, -1, -1));
         if subdiv.start > *oldend {
             *oldcount += 1;
@@ -63,7 +65,6 @@ fn unique_lists_with_counts<'a, 'b, 'c>(
         }
     }
 
-    println!("Combining");
     counts
         .into_iter()
         .map(|(subdiv, (score, _start, _end))| (subdiv, score))
@@ -83,7 +84,6 @@ fn gen_subdivisions<'a, 'b>(
     tokens: &'b [PrefetchedToken<'a, 'b>],
     source: &'b str,
 ) -> Vec<Subdivision<'a, 'b>> {
-    println!("Generating Subdivisions");
     (0..tokens.len())
         .collect_vec()
         .into_iter()
@@ -154,9 +154,11 @@ fn generate_one_macro<'a, 'b>(
     name: String,
     source: &'a str,
 ) -> Vec<Either<String, PrefetchedToken<'a, 'b>>> {
+    //println!("Generating Subdivisions");
     let subdivs = gen_subdivisions(tokens, source);
+    //println!("Counting");
     let subdivs = unique_lists_with_counts(&subdivs);
-    println!("Sorting and Scoring");
+    //println!("Sorting and Scoring");
     let adjusted_subdivs = subdivs
         .into_iter()
         .map(|(subdiv, frequency)| {
@@ -172,24 +174,24 @@ fn generate_one_macro<'a, 'b>(
         .sorted_by_key(|(_subdiv, score)| *score)
         .collect_vec();
 
-    println!("Top subdiv:");
-    for (subdiv, score) in adjusted_subdivs.iter().take(1) {
-        println!(
-            "==== Score: {score}\n{:?}",
-            reconstruct_source(
-                subdiv
-                    .tokens
-                    .iter()
-                    .copied()
-                    .map(Either::Right)
-                    .collect_vec()
-                    .as_slice()
-            )
-        );
+    let (best_subdiv, score) = adjusted_subdivs[0];
+    if score > 0 {
+        return tokens.iter().copied().map(Either::Right).collect_vec();
     }
-    println!("====");
-
-    let best_subdiv = &adjusted_subdivs[0].0;
+    /*
+    println!(
+        "Top subdiv: {score} {:?}",
+        reconstruct_source(
+            best_subdiv
+                .tokens
+                .iter()
+                .copied()
+                .map(Either::Right)
+                .collect_vec()
+                .as_slice()
+        )
+    );
+    */
 
     let new_macro = Either::Left(name);
     let mut definition = vec![
@@ -231,9 +233,11 @@ fn generate_one_macro<'a, 'b>(
 }
 
 fn get_tu<'a>(index: &'a Index<'a>, src: &str) -> TranslationUnit<'a> {
-    let mut parser = index.parser("test.c");
-    parser.unsaved(&[Unsaved::new("test.c", src)]);
-    parser.parse().unwrap()
+    index
+        .parser("test.c")
+        .unsaved(&[Unsaved::new("test.c", src)])
+        .parse()
+        .unwrap()
 }
 
 fn get_tokens<'a>(tu: &'a TranslationUnit<'a>) -> Vec<Token<'a>> {
@@ -311,7 +315,7 @@ fn main() {
 
         let tokens = get_tokens(&tu);
         println!("Current Token Count: {}", tokens.len());
-        if tokens.len() > prev_tokens {
+        if tokens.len() >= prev_tokens {
             println!("Tokens increased from {prev_tokens}. Exiting");
             break;
         }
