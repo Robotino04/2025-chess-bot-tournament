@@ -13,7 +13,7 @@
 
 
 // TODO: write as single number
-#define TRANSPOSITION_SIZE (1 << 25)
+#define TRANSPOSITION_SIZE 0b10000000000000000000000000 // (1 << 25)
 
 
 #ifdef STATIC_ASSERTS
@@ -73,7 +73,7 @@ int countBit1Fast(unsigned long n) {
 // prevent promotion: 8/3K4/4P3/8/8/8/6k1/7q w - - 0 1
 
 float material_of(PlayerColor color) {
-    return stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100.0f
+    return +stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100.0f
          + stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300.0f
          + stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP)) * 320.0f
          + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500.0f
@@ -92,7 +92,7 @@ float static_eval_me(PlayerColor color) {
     float material = material_of(color);
 
     float endgame_weight = 1.0f
-                         - (stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT))
+                         - (+stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT))
                             + stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP))
                             + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK))
                             + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN))
@@ -110,9 +110,9 @@ float static_eval_me(PlayerColor color) {
 #define king2_file king2 % 8
 #define king2_rank king2 / 8
 
-        material += (7 - fminf(king2_file, 7 - king2_file) - fminf(king2_rank, 7 - king2_rank)) * endgame_weight * 5.0f;
-
-        material += (14 - (abs(king % 8 - king2_rank) + abs(king / 8 - king2_rank))) * endgame_weight * 1.0f;
+        material += ((7 - fminf(king2_file, 7 - king2_file) - fminf(king2_rank, 7 - king2_rank)) * 5.0f
+                     + (14 - abs(king % 8 - king2_rank) - abs(king / 8 - king2_rank)))
+                  * endgame_weight;
     }
 
     return material;
@@ -145,17 +145,16 @@ float scoreMove(Move* move) {
 
     PieceType movePiece = chess_get_piece_from_bitboard(board, move->from);
 
-    float score = 0.0f;
+    // probably possible with only checking once
+    float score = fmaxf(entry->depth - 1, 0) * 100 + (entry->depth >= 2 ? entry->eval : 0);
+
     if (move->capture) {
-        score = 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
+        score += 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
     }
 
     if (move->promotion) { // "if" can be omitted
         score += move->promotion;
     }
-
-    // probably possible with only checking once
-    score += fmaxf(entry->depth - 1, 0) * 100 + (entry->depth >= 2 ? entry->eval : 0);
 
 
     /* maybe if we get the bitboards
@@ -180,13 +179,20 @@ float scoreMove(Move* move) {
 }
 
 int compareMoves(const void* a, const void* b) {
-    float sa = scoreMove((Move*)a); // TODO: remove cast
-    float sb = scoreMove((Move*)b); // TODO: remove cast
+#ifdef STATIC_ASSERTS
+    float sa = scoreMove((Move*)a);
+    float sb = scoreMove((Move*)b);
+#else
+    float sa = scoreMove(a);
+    float sb = scoreMove(b);
+#endif
 
-    if (sa < sb)
+    if (sa < sb) {
         return 1;
-    if (sa > sb)
+    }
+    if (sa > sb) {
         return -1;
+    }
     return 0;
 }
 
@@ -196,6 +202,7 @@ void orderMoves(Move* moves, int len) {
 
 
 float quiescence(float alpha, float beta) {
+    // TODO: should be safe to remove
     if (chess_get_elapsed_time_millis() > time_left) {
         return 54321.0f;
     }
@@ -228,7 +235,9 @@ float quiescence(float alpha, float beta) {
             chess_undo_move(board);
 
             if (chess_get_elapsed_time_millis() > time_left) {
+#ifdef STATIC_ASSERTS
                 bestValue = 54321.f;
+#endif
                 break;
             }
 
@@ -285,7 +294,9 @@ float alphaBeta(float alpha, float beta, int depthleft) {
         chess_undo_move(board);
 
         if (chess_get_elapsed_time_millis() > time_left) {
+#ifdef STATIC_ASSERTS
             bestValue = 12345.f;
+#endif
             break;
         }
 
