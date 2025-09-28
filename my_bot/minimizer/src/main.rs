@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    hash::Hash,
-};
+use std::{collections::HashMap, hash::Hash, ops::Range};
 
 use clang::{
     Clang, Index, TranslationUnit, Unsaved,
@@ -13,113 +9,166 @@ use tqdm::Iter;
 
 const MACRO_OVERHEAD: i32 = 2 + 1;
 
+#[derive(Debug, Clone, Copy)]
+struct PrefetchedToken<'a, 'b> {
+    token: &'b Token<'a>,
+    spelling: &'b str,
+}
+
+impl Hash for PrefetchedToken<'_, '_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.spelling.hash(state);
+    }
+}
+
 #[derive(Debug, Clone)]
-struct Subdivision<'a> {
-    tokens: Vec<Token<'a>>,
+struct Subdivision<'a, 'b> {
+    tokens: &'b [PrefetchedToken<'a, 'b>],
     start: i32,
     end: i32,
-    hashed_tokens: RefCell<Option<String>>,
 }
 
-impl Subdivision<'_> {
-    fn hashable_tokens(&self) -> String {
-        if let Some(hashed_tokens) = self.hashed_tokens.borrow().clone() {
-            return hashed_tokens;
-        }
-        *self.hashed_tokens.borrow_mut() =
-            Some(self.tokens.iter().map(|t| t.get_spelling()).join(" "));
-
-        self.hashed_tokens.borrow().as_ref().cloned().unwrap()
-    }
-}
-
-impl Hash for Subdivision<'_> {
+impl Hash for Subdivision<'_, '_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.hashable_tokens().hash(state);
-        //self.start.hash(state);
-        //self.end.hash(state);
+        for token in self.tokens {
+            token.hash(state);
+        }
     }
 }
 
-impl PartialEq for Subdivision<'_> {
+impl PartialEq for Subdivision<'_, '_> {
     fn eq(&self, other: &Self) -> bool {
-        self.hashable_tokens() == other.hashable_tokens()
+        self.tokens.len() == other.tokens.len()
+            && self
+                .tokens
+                .iter()
+                .zip(other.tokens.iter())
+                .all(|(t1, t2)| t1.spelling == t2.spelling)
     }
 }
-impl Eq for Subdivision<'_> {}
+impl Eq for Subdivision<'_, '_> {}
 
-fn unique_lists_with_counts(subdivisions: Vec<Subdivision>) -> Vec<(Subdivision, i32)> {
+fn unique_lists_with_counts<'a, 'b, 'c>(
+    subdivisions: &'c [Subdivision<'a, 'b>],
+) -> Vec<(&'c Subdivision<'a, 'b>, i32)> {
     println!("Counting");
-    let mut counts = HashMap::with_capacity(subdivisions.len());
-    let mut seen = HashSet::with_capacity(subdivisions.len());
+    let mut counts = HashMap::with_capacity_and_hasher(subdivisions.len(), ahash::RandomState::new());
 
-    for subdiv in subdivisions.into_iter().tqdm() {
-        let (oldcount, oldstart, oldend) = counts.entry(subdiv.clone()).or_insert((0, -1, -1));
+    for subdiv in subdivisions.iter()/*.tqdm()*/ {
+        let (oldcount, oldstart, oldend) = counts.entry(subdiv).or_insert((0, -1, -1));
         if subdiv.start > *oldend {
             *oldcount += 1;
             *oldstart = subdiv.start;
             *oldend = subdiv.end;
         }
-        seen.insert(subdiv);
     }
 
     println!("Combining");
-    seen.into_iter()
-        .map(|subdiv| (counts[&subdiv].0, subdiv))
-        .map(|(a, b)| (b, a))
-        .tqdm()
+    counts
+        .into_iter()
+        .map(|(subdiv, (score, _start, _end))| (subdiv, score))
+        //.tqdm()
         .collect()
 }
 
-fn gen_subdivisions<'a>(tokens: &[Token<'a>]) -> Vec<(Subdivision<'a>, i32)> {
+fn get_spelling_range(token: &Token) -> Range<usize> {
+    let range = token.get_range();
+    let start = range.get_start().get_file_location().offset as usize;
+    let end = range.get_end().get_file_location().offset as usize;
+
+    start..end
+}
+
+fn gen_subdivisions<'a, 'b>(
+    tokens: &'b [PrefetchedToken<'a, 'b>],
+    source: &'b str,
+) -> Vec<Subdivision<'a, 'b>> {
     println!("Generating Subdivisions");
-    let subdivs = (0..tokens.len())
+    (0..tokens.len())
         .collect_vec()
         .into_iter()
-        .tqdm()
-        .flat_map(|start| (start+2..tokens.len()).map(|end| (start, end)).collect_vec())
+        //.tqdm()
+        .flat_map(|start| {
+            (start + 2..tokens.len())
+                .map(|end| (start, end))
+                .collect_vec()
+        })
         .map(|(start, end)| Subdivision {
-            tokens: tokens[start..=end].to_vec(),
+            tokens: &tokens[start..=end],
             start: start as i32,
             end: end as i32,
-            hashed_tokens: RefCell::new(None),
         })
         .filter(|subdiv| {
-            let s = reconstruct_source(
-                subdiv
-                    .tokens
-                    .clone()
-                    .into_iter()
-                    .map(Either::Right)
-                    .collect_vec()
-                    .as_slice(),
-            );
-            !(s.contains("#") || s.contains("define") | s.contains("include")) && subdiv.tokens.len() >= 2
+            if subdiv.tokens.len() < 2 {
+                return false;
+            }
+
+            let start = subdiv
+                .tokens
+                .first()
+                .unwrap()
+                .token
+                .get_range()
+                .get_start()
+                .get_file_location()
+                .offset as usize;
+            let end = subdiv
+                .tokens
+                .last()
+                .unwrap()
+                .token
+                .get_range()
+                .get_end()
+                .get_file_location()
+                .offset as usize;
+
+            let spelling = &source[start..end];
+
+            !(spelling.contains('#') || spelling.contains("define") || spelling.contains("include"))
         })
         .sorted_by_key(|subdiv| subdiv.start)
-        .collect();
-    unique_lists_with_counts(subdivs)
+        .collect()
 }
-fn either_spelling(token: &Either<String, Token<'_>>) -> String {
+fn either_spelling<'a, 'b>(token: &'b Either<String, PrefetchedToken<'a, 'b>>) -> &'b str {
     match token {
-        Either::Left(x) => x.clone(),
-        Either::Right(t) => t.get_spelling(),
+        Either::Left(x) => x.as_str(),
+        Either::Right(t) => t.spelling,
     }
 }
 
-fn generate_one_macro(tokens: Vec<Token>, name: String) -> Vec<Either<String, Token>> {
-    let subdivs = gen_subdivisions(&tokens);
+fn prefetch_tokens<'a, 'b>(
+    tokens: &'b [Token<'a>],
+    source: &'b str,
+) -> Vec<PrefetchedToken<'a, 'b>> {
+    tokens
+        .iter()
+        .map(|token| PrefetchedToken {
+            token,
+            spelling: &source[get_spelling_range(token)],
+        })
+        .collect_vec()
+}
+
+fn generate_one_macro<'a, 'b>(
+    tokens: &'b [PrefetchedToken<'a, 'b>],
+    name: String,
+    source: &'a str,
+) -> Vec<Either<String, PrefetchedToken<'a, 'b>>> {
+    let subdivs = gen_subdivisions(tokens, source);
+    let subdivs = unique_lists_with_counts(&subdivs);
     println!("Sorting and Scoring");
     let adjusted_subdivs = subdivs
         .into_iter()
         .map(|(subdiv, frequency)| {
             (
-                frequency * (1 - subdiv.tokens.len() as i32) + MACRO_OVERHEAD + subdiv.tokens.len() as i32,
+                frequency * (1 - subdiv.tokens.len() as i32)
+                    + MACRO_OVERHEAD
+                    + subdiv.tokens.len() as i32,
                 subdiv,
             )
         })
         .map(|(a, b)| (b, a))
-        .tqdm()
+        //.tqdm()
         .sorted_by_key(|(_subdiv, score)| *score)
         .collect_vec();
 
@@ -128,12 +177,13 @@ fn generate_one_macro(tokens: Vec<Token>, name: String) -> Vec<Either<String, To
         println!(
             "==== Score: {score}\n{:?}",
             reconstruct_source(
-                &subdiv
+                subdiv
                     .tokens
-                    .clone()
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .map(Either::Right)
                     .collect_vec()
+                    .as_slice()
             )
         );
     }
@@ -148,13 +198,13 @@ fn generate_one_macro(tokens: Vec<Token>, name: String) -> Vec<Either<String, To
         new_macro.clone(),
         Either::Left("\\".to_string()),
     ];
-    definition.extend(best_subdiv.tokens.clone().into_iter().map(Either::Right));
+    definition.extend(best_subdiv.tokens.iter().copied().map(Either::Right));
     definition.push(Either::Left("\n".to_string()));
     definition = vec![Either::Left(
-        reconstruct_source(&definition).replace("\n", " ") + "\n",
+        reconstruct_source(definition.as_slice()).replace("\n", " ") + "\n",
     )];
 
-    let mut tokens = tokens.into_iter().map(Either::Right).collect_vec();
+    let mut tokens = tokens.iter().copied().map(Either::Right).collect_vec();
 
     let mut i = 0;
     while i < tokens.len() {
@@ -165,7 +215,7 @@ fn generate_one_macro(tokens: Vec<Token>, name: String) -> Vec<Either<String, To
                 break;
             }
 
-            if either_spelling(&tokens[i + j]) != best_subdiv.tokens[j].get_spelling() {
+            if either_spelling(&tokens[i + j]) != best_subdiv.tokens[j].spelling {
                 found = false;
                 break;
             }
@@ -196,15 +246,15 @@ fn get_tokens<'a>(tu: &'a TranslationUnit<'a>) -> Vec<Token<'a>> {
         .collect_vec()
 }
 
-fn reconstruct_source(tokens: &[Either<String, Token>]) -> String {
+fn reconstruct_source(tokens: &[Either<String, PrefetchedToken>]) -> String {
     let mut out = vec!["".to_string()];
     let mut line = match tokens[0] {
         Either::Left(_) => -1,
-        Either::Right(t) => t.get_location().get_spelling_location().line as i32,
+        Either::Right(t) => t.token.get_location().get_spelling_location().line as i32,
     };
     let mut col = match tokens[0] {
         Either::Left(_) => -1,
-        Either::Right(t) => t.get_location().get_spelling_location().column as i32,
+        Either::Right(t) => t.token.get_location().get_spelling_location().column as i32,
     };
 
     for token in tokens {
@@ -216,8 +266,8 @@ fn reconstruct_source(tokens: &[Either<String, Token>]) -> String {
                 last_line.push_str(s);
             }
             Either::Right(t) => {
-                let tstart = t.get_location().get_spelling_location();
-                let tend = t.get_range().get_end().get_spelling_location();
+                let tstart = t.token.get_location().get_spelling_location();
+                let tend = t.token.get_range().get_end().get_spelling_location();
                 if line != tstart.line as i32 {
                     line = tstart.line as i32;
                     col = 0;
@@ -228,16 +278,13 @@ fn reconstruct_source(tokens: &[Either<String, Token>]) -> String {
                     col = tend.column as i32;
                     last_line.push(' ');
                 }
-                last_line.push_str(&t.get_spelling());
+                last_line.push_str(t.spelling);
             }
         }
     }
 
     out.into_iter()
-        .map(|line| line.trim().to_string())
-        .join("\n")
-        .replace("\\\n", "")
-        .lines()
+        .map(|line| line.trim().trim_end_matches("\\").trim_end().to_string())
         .map(|line| {
             if line.starts_with("#") {
                 line.replace("\n", "")
@@ -254,7 +301,7 @@ fn main() {
 
     let index = Index::new(&clang, false, true);
 
-    let mut source = std::fs::read_to_string("../example_bot_minimized.c").unwrap();
+    let mut source = std::fs::read_to_string("../example_bot_clean.c").unwrap();
     let mut prev_source = "".to_string();
 
     let mut prev_tokens = 99999999;
@@ -275,10 +322,13 @@ fn main() {
             i += 1;
         }
 
-        let macroed_tokens = generate_one_macro(tokens, format!("rust_macro{i}"));
+        let tokens = prefetch_tokens(&tokens, &source);
 
+        let macroed_tokens = generate_one_macro(&tokens, format!("rust_macro{i}"), &source);
+
+        let new_source = reconstruct_source(&macroed_tokens);
         prev_source = source;
-        source = reconstruct_source(&macroed_tokens);
+        source = new_source;
 
         std::fs::write("../example_bot_minimized.c", &source).unwrap();
     }
