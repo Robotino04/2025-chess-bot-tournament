@@ -15,6 +15,14 @@
 // TODO: write as single number
 #define TRANSPOSITION_SIZE 0b10000000000000000000000000 // (1 << 25)
 
+// define it here so minimize.py removes it before applying macros
+#undef stdc_count_ones_ul
+#define stdc_count_ones_ul(x) __builtin_popcountl(x)
+
+#ifdef STATIC_ASSERTS
+static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITION_SIZE isn't a power of two");
+#endif
+
 
 #ifdef STATIC_ASSERTS
 static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITION_SIZE isn't a power of two");
@@ -92,16 +100,14 @@ float static_eval_me(PlayerColor color) {
     float material = material_of(color);
 
     float endgame_weight = 1.0f
-                         - (+stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT))
-                            + stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP))
-                            + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK))
-                            + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN))
-                            + stdc_count_ones_ul(chess_get_bitboard(board, color, KING))
-                            + stdc_count_ones_ul(chess_get_bitboard(board, color ^ 1, KNIGHT))
-                            + stdc_count_ones_ul(chess_get_bitboard(board, color ^ 1, BISHOP))
-                            + stdc_count_ones_ul(chess_get_bitboard(board, color ^ 1, ROOK))
-                            + stdc_count_ones_ul(chess_get_bitboard(board, color ^ 1, QUEEN))
-                            + stdc_count_ones_ul(chess_get_bitboard(board, color ^ 1, KING)) / 16.0f);
+                         - (stdc_count_ones_ul(
+                                chess_get_bitboard(board, color, KNIGHT) | chess_get_bitboard(board, color, BISHOP)
+                                | chess_get_bitboard(board, color, ROOK) | chess_get_bitboard(board, color, QUEEN)
+                                | chess_get_bitboard(board, color, KING) | chess_get_bitboard(board, color ^ 1, KNIGHT)
+                                | chess_get_bitboard(board, color ^ 1, BISHOP) | chess_get_bitboard(board, color ^ 1, ROOK)
+                                | chess_get_bitboard(board, color ^ 1, QUEEN) | chess_get_bitboard(board, color ^ 1, KING)
+                            )
+                            / 16.0f);
 
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
     int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color ^ 1, KING));
@@ -111,7 +117,7 @@ float static_eval_me(PlayerColor color) {
 #define king2_rank king2 / 8
 
         material += ((7 - fminf(king2_file, 7 - king2_file) - fminf(king2_rank, 7 - king2_rank)) * 5.0f
-                     + (14 - abs(king % 8 - king2_rank) - abs(king / 8 - king2_rank)))
+                     + (14 - abs(king % 8 - king2_file) - abs(king / 8 - king2_rank)))
                   * endgame_weight;
     }
 
@@ -145,7 +151,7 @@ float scoreMove(Move* move) {
     PieceType movePiece = chess_get_piece_from_bitboard(board, move->from);
 
     // probably possible with only checking once
-    float score = entry->depth > 0 ? entry->eval + 100 : 0;
+    float score = entry->depth > 1 ? entry->eval + 100 : 0;
 
     if (move->capture) {
         score += 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
