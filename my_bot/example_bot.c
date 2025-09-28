@@ -15,6 +15,11 @@
 // TODO: write as single number
 #define TRANSPOSITION_SIZE (1 << 25)
 
+
+#ifdef STATIC_ASSERTS
+static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITION_SIZE isn't a power of two");
+#endif
+
 #define TYPE_EXACT 0
 #define TYPE_UPPER_BOUND 1
 #define TYPE_LOWER_BOUND 2
@@ -34,7 +39,7 @@ struct {
 } transposition_table[TRANSPOSITION_SIZE];
 
 #ifdef STATS
-uint64_t hashes_used = 0;
+uint64_t hashes_used;
 #endif
 
 
@@ -85,7 +90,6 @@ float static_eval_me(PlayerColor color) {
 #endif
 
     float material = material_of(color);
-    float material2 = material_of(color ^ 1);
 
     float endgame_weight = 1.0f
                          - (stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT))
@@ -102,13 +106,13 @@ float static_eval_me(PlayerColor color) {
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
     int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color ^ 1, KING));
 
-    if (material > material2 + 200) {
-        int file = king2 % 8;
-        int rank = king2 / 8;
-        int dist_to_edge = fminf(file, 7 - file) + fminf(rank, 7 - rank);
-        material += (7 - dist_to_edge) * endgame_weight * 5.0f;
+    if (material > material_of(color ^ 1) + 200) {
+#define king2_file king2 % 8
+#define king2_rank king2 / 8
 
-        material += (14 - (abs(king % 8 - file) + abs(king / 8 - rank))) * endgame_weight * 1.0f;
+        material += (7 - fminf(king2_file, 7 - king2_file) - fminf(king2_rank, 7 - king2_rank)) * endgame_weight * 5.0f;
+
+        material += (14 - (abs(king % 8 - king2_rank) + abs(king / 8 - king2_rank))) * endgame_weight * 1.0f;
     }
 
     return material;
@@ -127,10 +131,10 @@ float static_eval() {
 }
 
 
-#define GEN_HASH /* parse fix */                                                \
-    uint64_t hash_orig = chess_zobrist_key(board);                              \
-    /* only works for powers of two */                                          \
-    uint64_t hash = (hash_orig ^ (hash_orig >> 32)) & (TRANSPOSITION_SIZE - 1); \
+#define GEN_HASH /* parse fix */                                          \
+    uint64_t hash_orig = chess_zobrist_key(board);                        \
+    /* only works for powers of two */                                    \
+    uint64_t hash = (hash_orig ^ (hash_orig >> 32)) % TRANSPOSITION_SIZE; \
     auto entry = &transposition_table[hash];
 
 
@@ -250,13 +254,6 @@ float alphaBeta(float alpha, float beta, int depthleft) {
         return quiescence(alpha, beta);
     }
     float alpha_orig = alpha;
-
-#ifdef STATIC_ASSERTS
-    static_assert(
-        (TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0,
-        "TRANSPOSITION_SIZE isn't a power of two"
-    );
-#endif
 
     GEN_HASH
     if (entry->depth >= depthleft && entry->hash == hash_orig

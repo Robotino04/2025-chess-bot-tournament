@@ -18,7 +18,7 @@ example_bot_clean.c: example_bot.c minimize.py
 	python3 minimize.py < example_bot.c > example_bot_clean.c
 
 example_bot_minimized.c: example_bot_clean.c minimizer/src/main.rs
-	java -jar ~/Downloads/toknt.jar example_bot_minimized.c
+	java -jar ~/Downloads/toknt.jar example_bot_clean.c
 	cd minimizer && cargo run --release
 
 clean:
