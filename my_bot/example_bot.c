@@ -22,6 +22,7 @@
 
 Board* board;
 uint64_t time_left;
+GameState state;
 #ifdef STATS
 uint64_t nodes;
 #endif
@@ -113,7 +114,7 @@ float static_eval_me(PlayerColor color) {
     return material;
 }
 
-float static_eval(GameState state) {
+float static_eval() {
     if (state == GAME_CHECKMATE) {
         return -INFINITY;
     }
@@ -198,11 +199,11 @@ float quiescence(float alpha, float beta) {
     ++nodes;
 #endif
 
-    GameState state = chess_get_game_state(board);
+    state = chess_get_game_state(board);
     if (state == GAME_STALEMATE) {
         return 0;
     }
-    float bestValue = static_eval(state);
+    float bestValue = static_eval();
     if (bestValue >= beta) {
         return bestValue;
     }
@@ -217,7 +218,6 @@ float quiescence(float alpha, float beta) {
     }
 
     for (int i = 0; i < len_moves; i++) {
-        // maybe invert and wrap everything
         if (moves[i].capture || is_check) {
             chess_make_move(board, moves[i]);
             float score = -quiescence(-beta, -alpha);
@@ -251,7 +251,6 @@ float alphaBeta(float alpha, float beta, int depthleft) {
     }
     float alpha_orig = alpha;
 
-    // TODO: remove assert
 #ifdef STATIC_ASSERTS
     static_assert(
         (TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0,
@@ -260,23 +259,16 @@ float alphaBeta(float alpha, float beta, int depthleft) {
 #endif
 
     GEN_HASH
-    if (entry->depth >= depthleft && entry->hash == hash_orig) {
-        // TODO: move into a single if
-        if (entry->type == TYPE_EXACT) {
-            return entry->eval;
-        }
-        if (entry->type == TYPE_LOWER_BOUND && entry->eval >= beta) {
-            return entry->eval;
-        }
-        if (entry->type == TYPE_UPPER_BOUND && entry->eval < alpha) {
-            return entry->eval;
-        }
+    if (entry->depth >= depthleft && entry->hash == hash_orig
+        && (entry->type == TYPE_EXACT || entry->type == TYPE_LOWER_BOUND && entry->eval >= beta
+            || entry->type == TYPE_UPPER_BOUND && entry->eval < alpha)) {
+        return entry->eval;
     }
 
     // quiescence will also instantly return 0 for draws
     // this saves a bit of performance
     // TODO: inline
-    GameState state = chess_get_game_state(board);
+    state = chess_get_game_state(board);
     if (state == GAME_STALEMATE) {
         return 0;
     }

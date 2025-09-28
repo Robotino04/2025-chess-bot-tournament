@@ -11,6 +11,8 @@ use clang::{
 use itertools::{Either, Itertools};
 use tqdm::Iter;
 
+const MACRO_OVERHEAD: i32 = 2 + 1;
+
 #[derive(Debug, Clone)]
 struct Subdivision<'a> {
     tokens: Vec<Token<'a>>,
@@ -75,7 +77,7 @@ fn gen_subdivisions<'a>(tokens: &[Token<'a>]) -> Vec<(Subdivision<'a>, i32)> {
         .collect_vec()
         .into_iter()
         .tqdm()
-        .flat_map(|start| (start..tokens.len()).map(|end| (start, end)).collect_vec())
+        .flat_map(|start| (start+2..tokens.len()).map(|end| (start, end)).collect_vec())
         .map(|(start, end)| Subdivision {
             tokens: tokens[start..=end].to_vec(),
             start: start as i32,
@@ -92,7 +94,7 @@ fn gen_subdivisions<'a>(tokens: &[Token<'a>]) -> Vec<(Subdivision<'a>, i32)> {
                     .collect_vec()
                     .as_slice(),
             );
-            !(s.contains("#") || s.contains("define") | s.contains("include"))
+            !(s.contains("#") || s.contains("define") | s.contains("include")) && subdiv.tokens.len() >= 2
         })
         .sorted_by_key(|subdiv| subdiv.start)
         .collect();
@@ -112,7 +114,7 @@ fn generate_one_macro(tokens: Vec<Token>, name: String) -> Vec<Either<String, To
         .into_iter()
         .map(|(subdiv, frequency)| {
             (
-                frequency * (1 - subdiv.tokens.len() as i32) + 2 + 1 + subdiv.tokens.len() as i32,
+                frequency * (1 - subdiv.tokens.len() as i32) + MACRO_OVERHEAD + subdiv.tokens.len() as i32,
                 subdiv,
             )
         })
