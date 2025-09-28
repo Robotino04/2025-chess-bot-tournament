@@ -22,10 +22,15 @@ in
   pkgs.mkShell rec {
     packages = [
       chess-lib
+      pkgs.openjdk24
+
+      pkgs.cutechess
+      pkgs.stockfish
+
       pkgs.clang-tools
       pkgs.uncrustify
-      pkgs.openjdk24
       (pkgs.python3.withPackages pythonPkgs)
+
       pkgs.cargo
       pkgs.libclang
       pkgs.rustc
