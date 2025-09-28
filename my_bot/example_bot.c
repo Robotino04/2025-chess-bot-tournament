@@ -133,7 +133,6 @@ float static_eval() {
 
 #define GEN_HASH /* parse fix */                                          \
     uint64_t hash_orig = chess_zobrist_key(board);                        \
-    /* only works for powers of two */                                    \
     uint64_t hash = (hash_orig ^ (hash_orig >> 32)) % TRANSPOSITION_SIZE; \
     auto entry = &transposition_table[hash];
 
@@ -146,7 +145,7 @@ float scoreMove(Move* move) {
     PieceType movePiece = chess_get_piece_from_bitboard(board, move->from);
 
     // probably possible with only checking once
-    float score = fmaxf(entry->depth - 1, 0) * 100 + (entry->depth >= 2 ? entry->eval : 0);
+    float score = entry->depth > 0 ? entry->eval + 100 : 0;
 
     if (move->capture) {
         score += 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
