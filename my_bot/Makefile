@@ -22,4 +22,4 @@ example_bot_minimized.c: example_bot_clean.c minimizer/src/main.rs
 	cd minimizer && cargo run --release
 
 clean:
-	rm -f example_bot example_bot_minimized
+	rm -f example_bot example_bot_minimized example_bot_clean.c example_bot_minimized.c
