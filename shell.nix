@@ -29,6 +29,7 @@ in
       pkgs.cargo
       pkgs.libclang
       pkgs.rustc
+      pkgs.samply
     ];
 
     LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath packages;
