@@ -157,9 +157,8 @@ float scoreMove(Move* move) {
         score += 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
     }
 
-    if (move->promotion) { // "if" can be omitted
-        score += move->promotion;
-    }
+    // add piece if it is a promotion
+    score += move->promotion;
 
 
     /* maybe if we get the bitboards
