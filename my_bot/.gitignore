@@ -1,5 +1,8 @@
 example_bot
+example_bot_clean.c
 example_bot_minimized
+example_bot_minimized.c
+
 .cache/
 backups/
 compile_commands.json
