@@ -1,7 +1,6 @@
 #include "chessapi.h"
 #include "stdlib.h"
 #include "math.h"
-#include "stdbit.h"
 
 #ifdef __PCPP__
 #else
@@ -23,11 +22,6 @@
 static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITION_SIZE isn't a power of two");
 #endif
 
-
-#ifdef STATIC_ASSERTS
-static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITION_SIZE isn't a power of two");
-#endif
-
 #define TYPE_EXACT 0
 #define TYPE_UPPER_BOUND 1
 #define TYPE_LOWER_BOUND 2
@@ -36,9 +30,6 @@ static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITI
 Board* board;
 uint64_t time_left;
 GameState state;
-#ifdef STATS
-uint64_t nodes;
-#endif
 
 struct {
     int64_t hash, depth;
@@ -47,6 +38,7 @@ struct {
 } transposition_table[TRANSPOSITION_SIZE];
 
 #ifdef STATS
+uint64_t nodes;
 uint64_t hashes_used;
 #endif
 
@@ -200,53 +192,65 @@ int compareMoves(const void* a, const void* b) {
     return 0;
 }
 
-void orderMoves(Move* moves, int len) {
-    qsort(moves, len, sizeof(Move), compareMoves);
-}
 
-
-float quiescence(float alpha, float beta) {
-    // TODO: should be safe to remove
-    if (chess_get_elapsed_time_millis() > time_left) {
-        return 54321.0f;
-    }
+float alphaBeta(float alpha, float beta, int depthleft) {
 #ifdef STATS
     ++nodes;
 #endif
+
+#define is_not_quiescence depthleft > 0
 
     state = chess_get_game_state(board);
     if (state == GAME_STALEMATE) {
         return 0;
     }
-    float bestValue = static_eval();
-    if (bestValue >= beta) {
-        return bestValue;
+
+    float alpha_orig = alpha;
+
+    float bestValue = -INFINITY;
+
+    GEN_HASH
+    if (is_not_quiescence) {
+        if (entry->depth >= depthleft && entry->hash == hash_orig
+            && (entry->type == TYPE_EXACT || entry->type == TYPE_LOWER_BOUND && entry->eval >= beta
+                || entry->type == TYPE_UPPER_BOUND && entry->eval < alpha)) {
+            return entry->eval;
+        }
     }
-    alpha = fmaxf(alpha, bestValue);
+    else {
+        bestValue = static_eval();
+        if (bestValue >= beta) {
+            return bestValue;
+        }
+        alpha = fmaxf(alpha, bestValue);
+    }
+
+    // quiescence will also instantly return 0 for draws
+    // this saves a bit of performance
+    // TODO: inline
+
+
+    bool is_check = chess_in_check(board);
 
     int len_moves;
     Move* moves = chess_get_legal_moves(board, &len_moves);
-    orderMoves(moves, len_moves);
-    bool is_check = chess_in_check(board);
-    if (len_moves == 0 && !is_check) { // can probably be thrown out for tokens later
-        bestValue = 0;
-    }
+    qsort(moves, len_moves, sizeof(Move), compareMoves);
 
     for (int i = 0; i < len_moves; i++) {
-        if (moves[i].capture || is_check) {
+        if (is_not_quiescence || moves[i].capture || is_check) {
             chess_make_move(board, moves[i]);
-            float score = -quiescence(-beta, -alpha);
+            float score = -alphaBeta(-beta, -alpha, depthleft - 1);
             chess_undo_move(board);
 
             if (chess_get_elapsed_time_millis() > time_left) {
 #ifdef STATIC_ASSERTS
-                bestValue = 54321.f;
+                bestValue = 12345.f;
 #endif
                 break;
             }
 
             bestValue = fmaxf(score, bestValue);
-            alpha = fmaxf(score, alpha);
+            alpha = fmaxf(alpha, bestValue);
             if (score >= beta) {
                 break;
             }
@@ -255,67 +259,9 @@ float quiescence(float alpha, float beta) {
 done:
 
     chess_free_moves_array(moves);
-    return bestValue;
-}
-
-float alphaBeta(float alpha, float beta, int depthleft) {
-    if (chess_get_elapsed_time_millis() > time_left) {
-        return -12345.f;
-    }
-
-    if (depthleft <= 0) {
-        return quiescence(alpha, beta);
-    }
-    float alpha_orig = alpha;
-
-    GEN_HASH
-    if (entry->depth >= depthleft && entry->hash == hash_orig
-        && (entry->type == TYPE_EXACT || entry->type == TYPE_LOWER_BOUND && entry->eval >= beta
-            || entry->type == TYPE_UPPER_BOUND && entry->eval < alpha)) {
-        return entry->eval;
-    }
-
-    // quiescence will also instantly return 0 for draws
-    // this saves a bit of performance
-    // TODO: inline
-    state = chess_get_game_state(board);
-    if (state == GAME_STALEMATE) {
-        return 0;
-    }
-
-#ifdef STATS
-    ++nodes;
-#endif
-
-    float bestValue = -INFINITY;
-    int len_moves;
-    Move* moves = chess_get_legal_moves(board, &len_moves);
-    orderMoves(moves, len_moves);
-
-    for (int i = 0; i < len_moves; i++) {
-        chess_make_move(board, moves[i]);
-        float score = -alphaBeta(-beta, -alpha, depthleft - 1);
-        chess_undo_move(board);
-
-        if (chess_get_elapsed_time_millis() > time_left) {
-#ifdef STATIC_ASSERTS
-            bestValue = 12345.f;
-#endif
-            break;
-        }
-
-        bestValue = fmaxf(score, bestValue);
-        alpha = fmaxf(score, alpha);
-        if (score >= beta) {
-            break;
-        }
-    }
-done:
-
-    chess_free_moves_array(moves);
 
     // TODO: maybe redundant, but lets leave it here for now
-    if (entry->depth <= depthleft) {
+    if (is_not_quiescence && entry->depth <= depthleft) {
 
 #ifdef STATS
         if (entry->depth == -1) {
@@ -340,13 +286,12 @@ int main(int argc, char* argv[]) {
     while (true) {
         board = chess_get_board();
 
-        int len_moves;
-        Move* moves = chess_get_legal_moves(board, &len_moves);
-        Move prevBestMove = moves[0]; // TODO: move `moves` ptr instead of separate variable
-        Move bestMove = moves[0];
-
         // TODO: divide by 20 to allow full-game time management
         time_left = chess_get_time_millis(); // + increment /2 if we had that
+
+        int len_moves;
+        Move* moves = chess_get_legal_moves(board, &len_moves);
+        Move prevBestMove = *moves, bestMove = *moves;
 
         for (int depth = 1; depth < 100; depth++) {
             float bestValue = -INFINITY;
