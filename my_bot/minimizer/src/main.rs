@@ -4,14 +4,13 @@ use clang::{
     Clang, Index, TranslationUnit, Unsaved,
     token::{Token, TokenKind},
 };
-use itertools::{Either, Itertools};
-use tqdm::Iter;
+use itertools::Itertools;
 
 const MACRO_OVERHEAD: i32 = 2 + 1;
 
 #[derive(Debug, Clone, Copy)]
 struct PrefetchedToken<'a, 'b> {
-    token: &'b Token<'a>,
+    token: Option<&'b Token<'a>>,
     spelling: &'b str,
 }
 
@@ -108,6 +107,7 @@ fn gen_subdivisions<'a, 'b>(
                 .first()
                 .unwrap()
                 .token
+                .unwrap()
                 .get_range()
                 .get_start()
                 .get_file_location()
@@ -117,6 +117,7 @@ fn gen_subdivisions<'a, 'b>(
                 .last()
                 .unwrap()
                 .token
+                .unwrap()
                 .get_range()
                 .get_end()
                 .get_file_location()
@@ -129,12 +130,6 @@ fn gen_subdivisions<'a, 'b>(
         .sorted_by_key(|subdiv| subdiv.start)
         .collect()
 }
-fn either_spelling<'a, 'b>(token: &'b Either<String, PrefetchedToken<'a, 'b>>) -> &'b str {
-    match token {
-        Either::Left(x) => x.as_str(),
-        Either::Right(t) => t.spelling,
-    }
-}
 
 fn prefetch_tokens<'a, 'b>(
     tokens: &'b [Token<'a>],
@@ -143,7 +138,7 @@ fn prefetch_tokens<'a, 'b>(
     tokens
         .iter()
         .map(|token| PrefetchedToken {
-            token,
+            token: Some(token),
             spelling: &source[get_spelling_range(token)],
         })
         .collect_vec()
@@ -151,10 +146,10 @@ fn prefetch_tokens<'a, 'b>(
 
 fn generate_one_macro<'a, 'b>(
     tokens: &'b [PrefetchedToken<'a, 'b>],
-    name: String,
+    name: &'b str,
     source: &'a str,
-) -> Vec<Either<String, PrefetchedToken<'a, 'b>>> {
-    //println!("Generating Subdivisions");
+) -> (String, Vec<PrefetchedToken<'a, 'b>>) {
+    println!("Generating Subdivisions");
     let subdivs = gen_subdivisions(tokens, source);
     //println!("Counting");
     let subdivs = unique_lists_with_counts(&subdivs);
@@ -176,60 +171,58 @@ fn generate_one_macro<'a, 'b>(
 
     let (best_subdiv, score) = adjusted_subdivs[0];
     if score > 0 {
-        return tokens.iter().copied().map(Either::Right).collect_vec();
+        return ("".to_string(), tokens.to_vec());
     }
     /*
     println!(
         "Top subdiv: {score} {:?}",
-        reconstruct_source(
-            best_subdiv
-                .tokens
-                .iter()
-                .copied()
-                .map(Either::Right)
-                .collect_vec()
-                .as_slice()
-        )
+        reconstruct_source(best_subdiv.tokens)
     );
     */
 
-    let new_macro = Either::Left(name);
-    let mut definition = vec![
-        Either::Left("#".to_string()),
-        Either::Left("define".to_string()),
-        new_macro.clone(),
-        Either::Left("\\".to_string()),
-    ];
-    definition.extend(best_subdiv.tokens.iter().copied().map(Either::Right));
-    definition.push(Either::Left("\n".to_string()));
-    definition = vec![Either::Left(
-        reconstruct_source(definition.as_slice()).replace("\n", " ") + "\n",
-    )];
+    let mut tokens = tokens.to_vec();
 
-    let mut tokens = tokens.iter().copied().map(Either::Right).collect_vec();
+    let new_macro = PrefetchedToken {
+        token: None,
+        spelling: name,
+    };
 
     let mut i = 0;
     while i < tokens.len() {
-        let mut found = true;
-        for j in 0..best_subdiv.tokens.len() {
-            if (i + j) >= tokens.len() {
-                found = false;
-                break;
-            }
+        let range = i..((i + best_subdiv.tokens.len()).min(tokens.len()));
 
-            if either_spelling(&tokens[i + j]) != best_subdiv.tokens[j].spelling {
-                found = false;
-                break;
-            }
-        }
-        if found {
-            tokens.splice(i..(i + best_subdiv.tokens.len()), vec![new_macro.clone()]);
+        let cmp_subdiv = Subdivision {
+            tokens: &tokens[range.clone()],
+            start: best_subdiv.start,
+            end: best_subdiv.end,
+        };
+
+        if *best_subdiv == cmp_subdiv {
+            tokens.splice(range, vec![new_macro]);
         }
         i += 1;
     }
-    tokens.splice(0..0, definition);
 
-    tokens
+    let mut definition = vec![
+        PrefetchedToken {
+            token: None,
+            spelling: "#",
+        },
+        PrefetchedToken {
+            token: None,
+            spelling: "define",
+        },
+        new_macro,
+        PrefetchedToken {
+            token: None,
+            spelling: "\\",
+        },
+    ];
+    definition.append(&mut best_subdiv.tokens.to_vec());
+
+    let definition_str = reconstruct_source(definition.as_slice()).replace("\n", " ") + "\n";
+
+    (definition_str, tokens)
 }
 
 fn get_tu<'a>(index: &'a Index<'a>, src: &str) -> TranslationUnit<'a> {
@@ -250,28 +243,28 @@ fn get_tokens<'a>(tu: &'a TranslationUnit<'a>) -> Vec<Token<'a>> {
         .collect_vec()
 }
 
-fn reconstruct_source(tokens: &[Either<String, PrefetchedToken>]) -> String {
+fn reconstruct_source(tokens: &[PrefetchedToken]) -> String {
     let mut out = vec!["".to_string()];
-    let mut line = match tokens[0] {
-        Either::Left(_) => -1,
-        Either::Right(t) => t.token.get_location().get_spelling_location().line as i32,
+    let mut line = match tokens[0].token {
+        None => -1,
+        Some(t) => t.get_location().get_spelling_location().line as i32,
     };
-    let mut col = match tokens[0] {
-        Either::Left(_) => -1,
-        Either::Right(t) => t.token.get_location().get_spelling_location().column as i32,
+    let mut col = match tokens[0].token {
+        None => -1,
+        Some(t) => t.get_location().get_spelling_location().column as i32,
     };
 
     for token in tokens {
         let mut last_line = out.last_mut().unwrap();
 
-        match token {
-            Either::Left(s) => {
+        match token.token {
+            None => {
                 last_line.push(' ');
-                last_line.push_str(s);
+                last_line.push_str(token.spelling);
             }
-            Either::Right(t) => {
-                let tstart = t.token.get_location().get_spelling_location();
-                let tend = t.token.get_range().get_end().get_spelling_location();
+            Some(t) => {
+                let tstart = t.get_location().get_spelling_location();
+                let tend = t.get_range().get_end().get_spelling_location();
                 if line != tstart.line as i32 {
                     line = tstart.line as i32;
                     col = 0;
@@ -282,7 +275,7 @@ fn reconstruct_source(tokens: &[Either<String, PrefetchedToken>]) -> String {
                     col = tend.column as i32;
                     last_line.push(' ');
                 }
-                last_line.push_str(t.spelling);
+                last_line.push_str(token.spelling);
             }
         }
     }
@@ -328,9 +321,10 @@ fn main() {
 
         let tokens = prefetch_tokens(&tokens, &source);
 
-        let macroed_tokens = generate_one_macro(&tokens, format!("rust_macro{i}"), &source);
+        let macro_name = format!("rust_macro{i}");
+        let (macro_str, macroed_tokens) = generate_one_macro(&tokens, &macro_name, &source);
 
-        let new_source = reconstruct_source(&macroed_tokens);
+        let new_source = macro_str + &reconstruct_source(&macroed_tokens);
         prev_source = source;
         source = new_source;
 
