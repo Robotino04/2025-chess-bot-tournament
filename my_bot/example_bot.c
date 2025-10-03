@@ -2,8 +2,7 @@
 #include "stdlib.h"
 #include "math.h"
 
-#ifdef __PCPP__
-#else
+#ifndef MINIMIZE
     #define STATS
     #include "stdio.h"
 
