@@ -1,0 +1,1 @@
+-checks=-*, readability-else-after-return, readability-redundant-*, readability-simplify-*, readability-container-size-empty, readability-container-contains, readability-qualified-auto, readability-static-accessed-through-instance, readability-convert-member-functions-to-static, readability-delete-null-pointer, readability-duplicate-include, -readability-uppercase-literal-suffix
