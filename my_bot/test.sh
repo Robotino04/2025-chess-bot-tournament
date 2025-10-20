@@ -8,5 +8,5 @@ cutechess-cli \
     -engine "conf=NB v6_transpos_order" \
     -engine "conf=NB v7_minimized_986" \
     -each st=0.05 timemargin=200 \
-    -games 250 -concurrency 32 \
+    -games 150 -concurrency 32 \
     -ratinginterval 10
