@@ -22,7 +22,7 @@ in
   pkgs.mkShell rec {
     packages = [
       chess-lib
-      pkgs.openjdk24
+      pkgs.openjdk25
 
       pkgs.cutechess
       pkgs.stockfish
