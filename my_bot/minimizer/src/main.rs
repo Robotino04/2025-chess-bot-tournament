@@ -296,7 +296,7 @@ fn reconstruct_source(tokens: &[PrefetchedToken]) -> String {
 fn main() {
     let clang = Clang::new().unwrap();
 
-    let index = Index::new(&clang, false, true);
+    let index = Index::new(&clang, false, false);
 
     let mut source = std::fs::read_to_string("../example_bot_clean.c").unwrap();
     let mut prev_source = "".to_string();
