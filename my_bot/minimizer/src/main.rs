@@ -9,20 +9,19 @@ use itertools::Itertools;
 const MACRO_OVERHEAD: i32 = 2 + 1;
 
 #[derive(Debug, Clone, Copy)]
-struct PrefetchedToken<'a, 'b> {
-    token: Option<&'b Token<'a>>,
-    spelling: &'b str,
+struct PrefetchedToken<'source> {
+    spelling: &'source str,
 }
 
-impl Hash for PrefetchedToken<'_, '_> {
+impl Hash for PrefetchedToken<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.spelling.hash(state);
     }
 }
 
 #[derive(Debug, Clone)]
-struct Subdivision<'a, 'b> {
-    tokens: &'b [PrefetchedToken<'a, 'b>],
+struct Subdivision<'source, 'parent> {
+    tokens: &'parent [PrefetchedToken<'source>],
     start: i32,
     end: i32,
 }
@@ -47,9 +46,9 @@ impl PartialEq for Subdivision<'_, '_> {
 }
 impl Eq for Subdivision<'_, '_> {}
 
-fn unique_lists_with_counts<'a, 'b, 'c>(
-    subdivisions: &'c [Subdivision<'a, 'b>],
-) -> Vec<(&'c Subdivision<'a, 'b>, i32)> {
+fn unique_lists_with_counts<'source, 'parent, 'div_parent>(
+    subdivisions: &'parent [Subdivision<'source, 'div_parent>],
+) -> Vec<(&'parent Subdivision<'source, 'div_parent>, i32)> {
     let mut counts =
         HashMap::with_capacity_and_hasher(subdivisions.len(), ahash::RandomState::new());
 
@@ -79,10 +78,9 @@ fn get_spelling_range(token: &Token) -> Range<usize> {
     start..end
 }
 
-fn gen_subdivisions<'a, 'b>(
-    tokens: &'b [PrefetchedToken<'a, 'b>],
-    source: &'b str,
-) -> Vec<Subdivision<'a, 'b>> {
+fn gen_subdivisions<'source, 'parent>(
+    tokens: &'parent [PrefetchedToken<'source>],
+) -> Vec<Subdivision<'source, 'parent>> {
     (0..tokens.len())
         .collect_vec()
         .into_iter()
@@ -102,55 +100,32 @@ fn gen_subdivisions<'a, 'b>(
                 return false;
             }
 
-            let start = subdiv
-                .tokens
-                .first()
-                .unwrap()
-                .token
-                .unwrap()
-                .get_range()
-                .get_start()
-                .get_file_location()
-                .offset as usize;
-            let end = subdiv
-                .tokens
-                .last()
-                .unwrap()
-                .token
-                .unwrap()
-                .get_range()
-                .get_end()
-                .get_file_location()
-                .offset as usize;
-
-            let spelling = &source[start..end];
-
-            !(spelling.contains('#') || spelling.contains("define") || spelling.contains("include"))
+            !subdiv.tokens.iter().any(|token| {
+                token.spelling == "#" || token.spelling == "define" || token.spelling == "include"
+            })
         })
         .sorted_by_key(|subdiv| subdiv.start)
         .collect()
 }
 
-fn prefetch_tokens<'a, 'b>(
-    tokens: &'b [Token<'a>],
-    source: &'b str,
-) -> Vec<PrefetchedToken<'a, 'b>> {
+fn prefetch_tokens<'tu, 'source, 'parent>(
+    tokens: &'parent [Token<'tu>],
+    source: &'source str,
+) -> Vec<PrefetchedToken<'source>> {
     tokens
         .iter()
         .map(|token| PrefetchedToken {
-            token: Some(token),
             spelling: &source[get_spelling_range(token)],
         })
         .collect_vec()
 }
 
-fn generate_one_macro<'a, 'b>(
-    tokens: &'b [PrefetchedToken<'a, 'b>],
-    name: &'b str,
-    source: &'a str,
-) -> (String, Vec<PrefetchedToken<'a, 'b>>) {
+fn generate_one_macro<'source>(
+    tokens: &[PrefetchedToken<'source>],
+    name: &'source str,
+) -> Vec<PrefetchedToken<'source>> {
     println!("Generating Subdivisions");
-    let subdivs = gen_subdivisions(tokens, source);
+    let subdivs = gen_subdivisions(tokens);
     //println!("Counting");
     let subdivs = unique_lists_with_counts(&subdivs);
     //println!("Sorting and Scoring");
@@ -171,7 +146,7 @@ fn generate_one_macro<'a, 'b>(
 
     let (best_subdiv, score) = adjusted_subdivs[0];
     if score > 0 {
-        return ("".to_string(), tokens.to_vec());
+        return tokens.to_vec();
     }
     /*
     println!(
@@ -183,7 +158,6 @@ fn generate_one_macro<'a, 'b>(
     let mut tokens = tokens.to_vec();
 
     let new_macro = PrefetchedToken {
-        token: None,
         spelling: name,
     };
 
@@ -205,27 +179,24 @@ fn generate_one_macro<'a, 'b>(
 
     let mut definition = vec![
         PrefetchedToken {
-            token: None,
             spelling: "#",
         },
         PrefetchedToken {
-            token: None,
             spelling: "define",
         },
         new_macro,
         PrefetchedToken {
-            token: None,
-            spelling: "\\",
+            spelling: " ",
         },
     ];
-    definition.append(&mut best_subdiv.tokens.to_vec());
+    definition.extend(best_subdiv.tokens);
 
-    let definition_str = reconstruct_source(definition.as_slice()).replace("\n", " ") + "\n";
+    definition.extend(tokens);
 
-    (definition_str, tokens)
+    definition
 }
 
-fn get_tu<'a>(index: &'a Index<'a>, src: &str) -> TranslationUnit<'a> {
+fn get_tu<'index>(index: &'index Index<'index>, src: &str) -> TranslationUnit<'index> {
     index
         .parser("test.c")
         .unsaved(&[Unsaved::new("test.c", src)])
@@ -233,7 +204,7 @@ fn get_tu<'a>(index: &'a Index<'a>, src: &str) -> TranslationUnit<'a> {
         .unwrap()
 }
 
-fn get_tokens<'a>(tu: &'a TranslationUnit<'a>) -> Vec<Token<'a>> {
+fn get_tokens<'tu>(tu: &'tu TranslationUnit<'tu>) -> Vec<Token<'tu>> {
     tu.get_entity()
         .get_range()
         .unwrap()
@@ -244,53 +215,32 @@ fn get_tokens<'a>(tu: &'a TranslationUnit<'a>) -> Vec<Token<'a>> {
 }
 
 fn reconstruct_source(tokens: &[PrefetchedToken]) -> String {
-    let mut out = vec!["".to_string()];
-    let mut line = match tokens[0].token {
-        None => -1,
-        Some(t) => t.get_location().get_spelling_location().line as i32,
-    };
-    let mut col = match tokens[0].token {
-        None => -1,
-        Some(t) => t.get_location().get_spelling_location().column as i32,
-    };
+    let mut out = "".to_string();
+
+    let mut include_count = 0;
+
+    const INCLUDE_TOKEN_COUNT: u32 = 3; // # + include + "str"
 
     for token in tokens {
-        let mut last_line = out.last_mut().unwrap();
-
-        match token.token {
-            None => {
-                last_line.push(' ');
-                last_line.push_str(token.spelling);
-            }
-            Some(t) => {
-                let tstart = t.get_location().get_spelling_location();
-                let tend = t.get_range().get_end().get_spelling_location();
-                if line != tstart.line as i32 {
-                    line = tstart.line as i32;
-                    col = 0;
-                    out.push("".to_string());
-                    last_line = out.last_mut().unwrap();
-                }
-                if col != tstart.column as i32 {
-                    col = tend.column as i32;
-                    last_line.push(' ');
-                }
-                last_line.push_str(token.spelling);
-            }
+        out.push(' ');
+        if token.spelling == "#" || include_count == INCLUDE_TOKEN_COUNT {
+            out.push('\n');
+            include_count = 0;
         }
+
+        if token.spelling == "#"
+            || token.spelling == "include"
+            || (token.spelling.starts_with("\"") && token.spelling.ends_with("\""))
+        {
+            include_count += 1;
+        } else {
+            include_count = 0;
+        }
+
+        out.push_str(token.spelling);
     }
 
-    out.into_iter()
-        .map(|line| line.trim().trim_end_matches("\\").trim_end().to_string())
-        .map(|line| {
-            if line.starts_with("#") {
-                line.replace("\n", "")
-            } else {
-                line.to_string()
-            }
-        })
-        .map(|line| line.trim().to_string())
-        .join("\n")
+    out
 }
 
 fn main() {
@@ -298,15 +248,18 @@ fn main() {
 
     let index = Index::new(&clang, false, false);
 
-    let mut source = std::fs::read_to_string("../example_bot_clean.c").unwrap();
-    let mut prev_source = "".to_string();
+    let source = std::fs::read_to_string("../example_bot_clean.c").unwrap();
 
     let mut prev_tokens = 99999999;
+    let tu = get_tu(&index, &source);
 
+    let tokens = get_tokens(&tu);
+    let mut tokens = prefetch_tokens(&tokens, &source);
+
+    let macro_names = (0..100).map(|i| format!("rust_macro{i}")).collect_vec();
+
+    let mut i = 0;
     loop {
-        let tu = get_tu(&index, &source);
-
-        let tokens = get_tokens(&tu);
         println!("Current Token Count: {}", tokens.len());
         if tokens.len() >= prev_tokens {
             println!("Tokens increased from {prev_tokens}. Exiting");
@@ -314,22 +267,11 @@ fn main() {
         }
         prev_tokens = tokens.len();
 
-        let mut i = 0;
-        while source.contains(&format!("rust_macro{i}")) {
-            i += 1;
-        }
+        tokens = generate_one_macro(&tokens, &macro_names[i]);
 
-        let tokens = prefetch_tokens(&tokens, &source);
-
-        let macro_name = format!("rust_macro{i}");
-        let (macro_str, macroed_tokens) = generate_one_macro(&tokens, &macro_name, &source);
-
-        let new_source = macro_str + &reconstruct_source(&macroed_tokens);
-        prev_source = source;
-        source = new_source;
-
-        std::fs::write("../example_bot_minimized.c", &source).unwrap();
+        i += 1;
     }
+    let source = reconstruct_source(&tokens);
 
-    std::fs::write("../example_bot_minimized.c", &prev_source).unwrap();
+    std::fs::write("../example_bot_minimized.c", &source).unwrap();
 }
