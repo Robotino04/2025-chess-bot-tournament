@@ -3,6 +3,7 @@ cutechess-cli \
     -engine "conf=Stockfish 1320" \
     -engine "conf=Stockfish 1500" \
     -engine "conf=NB Latest" \
+    -engine "conf=NB Latest Minimized" \
     -engine "conf=NB v4_transpos" \
     -engine "conf=NB v5_good_transpos" \
     -engine "conf=NB v6_transpos_order" \
