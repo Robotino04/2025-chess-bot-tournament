@@ -11,7 +11,7 @@
 
 
 // TODO: write as single number
-#define TRANSPOSITION_SIZE 0b10000000000000000000000000 // (1 << 25)
+#define TRANSPOSITION_SIZE (1ul << 25)
 
 // define it here so minimize.py removes it before applying macros
 #undef stdc_count_ones_ul
@@ -21,9 +21,10 @@
 static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITION_SIZE isn't a power of two");
 #endif
 
-#define TYPE_EXACT 0
-#define TYPE_UPPER_BOUND 1
-#define TYPE_LOWER_BOUND 2
+#define TYPE_UNUSED 0
+#define TYPE_EXACT 1
+#define TYPE_UPPER_BOUND 2
+#define TYPE_LOWER_BOUND 3
 
 
 Board* board;
@@ -31,15 +32,28 @@ uint64_t time_left;
 GameState state;
 
 struct {
-    int64_t hash, depth;
+#ifdef STATS
+    uint64_t num_nodes;
+#endif
+    int32_t hash, depth;
     int type;
     float eval;
 } transposition_table[TRANSPOSITION_SIZE];
 
 #ifdef STATS
-uint64_t nodes;
 uint64_t hashes_used;
+
+uint64_t searched_nodes;
+uint64_t transposition_hits;
+uint64_t cached_nodes;
+uint64_t transposition_overwrites;
+uint64_t new_hashes;
 #endif
+
+#define MAX_MOVES 256
+#define FETCH_MOVES        \
+    Move moves[MAX_MOVES]; \
+    int len_moves = chess_get_legal_moves_inplace(board, moves, MAX_MOVES);
 
 
 // TODO
@@ -80,7 +94,6 @@ float material_of(PlayerColor color) {
 }
 
 float static_eval_me(PlayerColor color) {
-    // TODO: remove before submission
 #ifdef STATIC_ASSERTS
     static_assert(WHITE == 0, "WHITE isn't 0");
     static_assert(BLACK == 1, "BLACK isn't 1");
@@ -128,9 +141,9 @@ float static_eval() {
 }
 
 
-#define GEN_HASH /* parse fix */                                          \
-    uint64_t hash_orig = chess_zobrist_key(board);                        \
-    uint64_t hash = (hash_orig ^ (hash_orig >> 32)) % TRANSPOSITION_SIZE; \
+#define GEN_HASH /* parse fix */                    \
+    uint64_t hash_orig = chess_zobrist_key(board);  \
+    uint64_t hash = hash_orig % TRANSPOSITION_SIZE; \
     auto entry = &transposition_table[hash];
 
 
@@ -141,8 +154,8 @@ float scoreMove(Move* move) {
 
     PieceType movePiece = chess_get_piece_from_bitboard(board, move->from);
 
-    // probably possible with only checking once
-    float score = entry->depth > 1 ? entry->eval + 100 : 0;
+    // TODO: replace with multiplication once we use ints for score
+    float score = entry->type == TYPE_UNUSED ? 0 : entry->eval + 100;
 
     if (move->capture) {
         score += 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
@@ -168,6 +181,7 @@ float scoreMove(Move* move) {
     if (move->to & all_opp_attacked) {
         score -= movePiece;
     }
+
     */
 
     return score;
@@ -194,7 +208,9 @@ int compareMoves(const void* a, const void* b) {
 
 float alphaBeta(float alpha, float beta, int depthleft) {
 #ifdef STATS
-    ++nodes;
+    ++searched_nodes;
+    uint64_t old_searched_nodes = searched_nodes;
+    uint64_t old_cached_nodes = cached_nodes;
 #endif
 
 #define is_not_quiescence depthleft > 0
@@ -210,9 +226,13 @@ float alphaBeta(float alpha, float beta, int depthleft) {
 
     GEN_HASH
     if (is_not_quiescence) {
-        if (entry->depth >= depthleft && entry->hash == hash_orig
+        if (entry->depth >= depthleft && entry->hash == hash_orig / TRANSPOSITION_SIZE
             && (entry->type == TYPE_EXACT || entry->type == TYPE_LOWER_BOUND && entry->eval >= beta
                 || entry->type == TYPE_UPPER_BOUND && entry->eval < alpha)) {
+#ifdef STATS
+            transposition_hits++;
+            cached_nodes += entry->num_nodes;
+#endif
             return entry->eval;
         }
     }
@@ -224,29 +244,21 @@ float alphaBeta(float alpha, float beta, int depthleft) {
         alpha = fmaxf(alpha, bestValue);
     }
 
-    // quiescence will also instantly return 0 for draws
-    // this saves a bit of performance
-    // TODO: inline
-
-
     bool is_check = chess_in_check(board);
 
-    int len_moves;
-    Move* moves = chess_get_legal_moves(board, &len_moves);
+    FETCH_MOVES
     qsort(moves, len_moves, sizeof(Move), compareMoves);
 
     for (int i = 0; i < len_moves; i++) {
+        if (chess_get_elapsed_time_millis() > time_left) {
+            return 12345.f;
+        }
+
         if (is_not_quiescence || moves[i].capture || is_check) {
             chess_make_move(board, moves[i]);
             float score = -alphaBeta(-beta, -alpha, depthleft - 1);
             chess_undo_move(board);
 
-            if (chess_get_elapsed_time_millis() > time_left) {
-#ifdef STATIC_ASSERTS
-                bestValue = 12345.f;
-#endif
-                break;
-            }
 
             bestValue = fmaxf(score, bestValue);
             alpha = fmaxf(alpha, bestValue);
@@ -255,21 +267,23 @@ float alphaBeta(float alpha, float beta, int depthleft) {
             }
         }
     }
-done:
 
-    chess_free_moves_array(moves);
 
     // TODO: maybe redundant, but lets leave it here for now
-    if (is_not_quiescence && entry->depth <= depthleft) {
+    if (is_not_quiescence && entry->depth < depthleft) {
 
 #ifdef STATS
-        if (entry->depth == -1) {
+        entry->num_nodes = (searched_nodes + cached_nodes) - (old_searched_nodes + old_cached_nodes);
+        if (entry->type == TYPE_UNUSED) {
             hashes_used++;
+            new_hashes++;
+        }
+        else {
+            transposition_overwrites++;
         }
 #endif
 
-
-        entry->hash = hash_orig;
+        entry->hash = hash_orig / TRANSPOSITION_SIZE;
         entry->eval = bestValue;
         entry->depth = depthleft;
         entry->type = bestValue <= alpha_orig ? TYPE_UPPER_BOUND
@@ -280,7 +294,37 @@ done:
     return bestValue;
 }
 
+#ifdef STATS
+void print_tt_stats(void) {
+    printf(
+        "info string Transposition hits: %lu, overwrites: %lu, new_hashes: %lu, overwriteRate: %f%%, "
+        "hits/search: "
+        "%f%%, hits/total: %f%%\n",
+        transposition_hits,
+        transposition_overwrites,
+        new_hashes,
+        (float)transposition_overwrites / (float)(transposition_overwrites + new_hashes) * 100.0f,
+        (float)transposition_hits / (float)(searched_nodes) * 100.0f,
+        (float)cached_nodes / (float)(searched_nodes + cached_nodes) * 100.0f
+    );
+    fflush(stdout);
+}
+void print_stats(int depth, float bestValue) {
+    printf(
+        "info depth %d score cp %d nodes %lu nps %lu hashfull %lu time %lu\n",
+        depth,
+        (int)bestValue,
+        searched_nodes,
+        (searched_nodes * 1000) / (chess_get_elapsed_time_millis() + 1),
+        hashes_used * 1000 / TRANSPOSITION_SIZE,
+        chess_get_elapsed_time_millis()
+    );
+    print_tt_stats();
+    fflush(stdout);
+}
+#endif
 
+// TODO: remove args
 int main(int argc, char* argv[]) {
     while (true) {
         board = chess_get_board();
@@ -288,20 +332,27 @@ int main(int argc, char* argv[]) {
         // TODO: divide by 20 to allow full-game time management
         time_left = chess_get_time_millis(); // + increment /2 if we had that
 
-        int len_moves;
-        Move* moves = chess_get_legal_moves(board, &len_moves);
-        Move prevBestMove = *moves, bestMove = *moves;
+        FETCH_MOVES
+        Move prevBestMove = *moves, bestMove = prevBestMove;
 
         for (int depth = 1; depth < 100; depth++) {
+#ifdef STATS
+            searched_nodes = 0;
+            transposition_hits = 0;
+            cached_nodes = 0;
+            transposition_overwrites = 0;
+            new_hashes = 0;
+#endif
+
             float bestValue = -INFINITY;
             for (int i = 0; i < len_moves; i++) {
-                chess_make_move(board, moves[i]);
-                float score = -alphaBeta(-INFINITY, INFINITY, depth);
-                chess_undo_move(board);
-
                 if (chess_get_elapsed_time_millis() > time_left) {
                     goto search_canceled;
                 }
+
+                chess_make_move(board, moves[i]);
+                float score = -alphaBeta(-INFINITY, INFINITY, depth);
+                chess_undo_move(board);
 
                 if (score > bestValue) {
                     bestValue = score;
@@ -312,16 +363,7 @@ int main(int argc, char* argv[]) {
                 goto search_canceled;
             }
 #ifdef STATS
-            printf(
-                "info depth %d score cp %d nodes %lu nps %lu hashfull %lu time %lu\n",
-                depth,
-                (int)bestValue,
-                nodes,
-                (nodes * 1000) / (chess_get_elapsed_time_millis() + 1),
-                hashes_used * 1000 / TRANSPOSITION_SIZE,
-                chess_get_elapsed_time_millis()
-            );
-            fflush(stdout);
+            print_stats(depth, bestValue);
 #endif
 
 
@@ -334,7 +376,6 @@ int main(int argc, char* argv[]) {
 
         chess_push(prevBestMove);
 
-        chess_free_moves_array(moves);
         chess_free_board(board);
 
         chess_done();
