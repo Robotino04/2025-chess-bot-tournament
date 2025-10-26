@@ -37,7 +37,7 @@ struct {
 #ifdef STATS
     uint64_t num_nodes;
 #endif
-    int32_t hash;
+    uint64_t hash;
     float eval;
     int type, depth;
 } transposition_table[TRANSPOSITION_SIZE];
@@ -230,7 +230,7 @@ float alphaBeta(float alpha, float beta, int depthleft) {
 
     GEN_HASH
     if (is_not_quiescence) {
-        if (entry->depth >= depthleft && entry->hash == hash_orig / TRANSPOSITION_SIZE
+        if (entry->depth >= depthleft && entry->hash == hash_orig
             && (entry->type == TYPE_EXACT || entry->type == TYPE_LOWER_BOUND && entry->eval >= beta
                 || entry->type == TYPE_UPPER_BOUND && entry->eval < alpha)) {
 #ifdef STATS
@@ -270,7 +270,7 @@ float alphaBeta(float alpha, float beta, int depthleft) {
 
 
     // TODO: maybe redundant, but lets leave it here for now
-    if (is_not_quiescence && (entry->depth < depthleft || !(entry->hash == hash_orig / TRANSPOSITION_SIZE))) {
+    if (is_not_quiescence && (entry->depth < depthleft || !(entry->hash == hash_orig))) {
 
 #ifdef STATS
         entry->num_nodes = (searched_nodes + cached_nodes) - (old_searched_nodes + old_cached_nodes);
@@ -283,7 +283,7 @@ float alphaBeta(float alpha, float beta, int depthleft) {
         }
 #endif
 
-        entry->hash = hash_orig / TRANSPOSITION_SIZE;
+        entry->hash = hash_orig;
         entry->eval = bestValue;
         entry->depth = depthleft;
         entry->type = bestValue <= alpha_orig ? TYPE_UPPER_BOUND
