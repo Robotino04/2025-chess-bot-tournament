@@ -9,6 +9,7 @@ cutechess-cli \
     -engine "name=NB v6_transpos_order" cmd=./backups/v6_transpos_order \
     -engine "name=NB v7_minimized_986" cmd=./backups/v7_minimized_986 \
     -engine "name=NB v8_really_small" cmd=./backups/v8_really_small \
-    -each st=0.05 timemargin=200 proto=uci \
+    -openings file="book-ply6-unifen_Q.txt" format=epd order=random plies=6 policy=default \
+    -each st=0.05 timemargin=200 proto=uci restart=on \
     -games 350 -concurrency 32 \
     -ratinginterval 10
