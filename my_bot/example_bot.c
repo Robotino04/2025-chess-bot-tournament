@@ -35,9 +35,9 @@ struct {
 #ifdef STATS
     uint64_t num_nodes;
 #endif
-    int32_t hash, depth;
-    int type;
+    int32_t hash;
     float eval;
+    int type, depth;
 } transposition_table[TRANSPOSITION_SIZE];
 
 #ifdef STATS
@@ -92,6 +92,10 @@ float material_of(PlayerColor color) {
          + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500.0f
          + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900.0f;
 }
+#define GET_ENDGAME_WEIGHT(COLOR)                                                          \
+    chess_get_bitboard(board, COLOR, KNIGHT) | chess_get_bitboard(board, COLOR, BISHOP)    \
+        | chess_get_bitboard(board, COLOR, ROOK) | chess_get_bitboard(board, COLOR, QUEEN) \
+        | chess_get_bitboard(board, COLOR, KING)
 
 float static_eval_me(PlayerColor color) {
 #ifdef STATIC_ASSERTS
@@ -103,15 +107,7 @@ float static_eval_me(PlayerColor color) {
 
     float material = material_of(color);
 
-    float endgame_weight = 1.0f
-                         - (stdc_count_ones_ul(
-                                chess_get_bitboard(board, color, KNIGHT) | chess_get_bitboard(board, color, BISHOP)
-                                | chess_get_bitboard(board, color, ROOK) | chess_get_bitboard(board, color, QUEEN)
-                                | chess_get_bitboard(board, color, KING) | chess_get_bitboard(board, color ^ 1, KNIGHT)
-                                | chess_get_bitboard(board, color ^ 1, BISHOP) | chess_get_bitboard(board, color ^ 1, ROOK)
-                                | chess_get_bitboard(board, color ^ 1, QUEEN) | chess_get_bitboard(board, color ^ 1, KING)
-                            )
-                            / 16.0f);
+    float endgame_weight = 1.0f - (stdc_count_ones_ul(GET_ENDGAME_WEIGHT(color) | GET_ENDGAME_WEIGHT(color ^ 1)) / 16.0f);
 
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
     int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color ^ 1, KING));
@@ -155,7 +151,8 @@ float scoreMove(Move* move) {
     PieceType movePiece = chess_get_piece_from_bitboard(board, move->from);
 
     // TODO: replace with multiplication once we use ints for score
-    float score = entry->type == TYPE_UNUSED ? 0 : entry->eval + 100;
+    float score = 0;
+    entry->type == TYPE_UNUSED ? 0 : entry->eval + 100;
 
     if (move->capture) {
         score += 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
@@ -270,7 +267,7 @@ float alphaBeta(float alpha, float beta, int depthleft) {
 
 
     // TODO: maybe redundant, but lets leave it here for now
-    if (is_not_quiescence && entry->depth < depthleft) {
+    if (is_not_quiescence && (entry->depth < depthleft || !(entry->hash == hash_orig / TRANSPOSITION_SIZE))) {
 
 #ifdef STATS
         entry->num_nodes = (searched_nodes + cached_nodes) - (old_searched_nodes + old_cached_nodes);
