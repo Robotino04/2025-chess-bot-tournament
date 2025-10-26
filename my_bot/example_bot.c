@@ -1,6 +1,7 @@
 #include "chessapi.h"
 #include "stdlib.h"
 #include "math.h"
+#include "setjmp.h"
 
 #ifndef MINIMIZE
     #define STATS
@@ -29,6 +30,7 @@ static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITI
 
 Board* board;
 uint64_t time_left;
+jmp_buf timeout_jmp;
 GameState state;
 
 struct {
@@ -210,6 +212,11 @@ float alphaBeta(float alpha, float beta, int depthleft) {
     uint64_t old_cached_nodes = cached_nodes;
 #endif
 
+    if (chess_get_elapsed_time_millis() > time_left) {
+        longjmp(timeout_jmp, 1234);
+    }
+
+
 #define is_not_quiescence depthleft > 0
 
     state = chess_get_game_state(board);
@@ -247,10 +254,6 @@ float alphaBeta(float alpha, float beta, int depthleft) {
     qsort(moves, len_moves, sizeof(Move), compareMoves);
 
     for (int i = 0; i < len_moves; i++) {
-        if (chess_get_elapsed_time_millis() > time_left) {
-            return 12345.f;
-        }
-
         if (is_not_quiescence || moves[i].capture || is_check) {
             chess_make_move(board, moves[i]);
             float score = -alphaBeta(-beta, -alpha, depthleft - 1);
@@ -340,9 +343,16 @@ int main(int argc, char* argv[]) {
             transposition_overwrites = 0;
             new_hashes = 0;
 #endif
+            // new board so longjmp doesn't have to undo moves anything
+            chess_free_board(board);
+            board = chess_get_board();
+
+            if (setjmp(timeout_jmp) != 0)
+                goto search_canceled;
 
             float bestValue = -INFINITY;
             for (int i = 0; i < len_moves; i++) {
+                // TODO: should be safe to remove
                 if (chess_get_elapsed_time_millis() > time_left) {
                     goto search_canceled;
                 }
@@ -356,6 +366,7 @@ int main(int argc, char* argv[]) {
                     bestMove = moves[i];
                 }
             }
+            // TODO: should be safe to remove
             if (chess_get_elapsed_time_millis() > time_left) {
                 goto search_canceled;
             }
