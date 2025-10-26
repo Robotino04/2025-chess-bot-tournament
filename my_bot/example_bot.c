@@ -40,6 +40,7 @@ struct {
     uint64_t hash;
     float eval;
     int type, depth;
+    Move bestMove;
 } transposition_table[TRANSPOSITION_SIZE];
 
 #ifdef STATS
@@ -146,15 +147,16 @@ float static_eval() {
 
 
 float scoreMove(Move* move) {
-    chess_make_move(board, *move);
     GEN_HASH
-    chess_undo_move(board);
+    if (move->from == entry->bestMove.from && move->to == entry->bestMove.to) {
+        return 9999999;
+    }
+
 
     PieceType movePiece = chess_get_piece_from_bitboard(board, move->from);
 
     // TODO: replace with multiplication once we use ints for score
     float score = 0;
-    entry->type == TYPE_UNUSED ? 0 : entry->eval + 100;
 
     if (move->capture) {
         score += 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
@@ -174,7 +176,6 @@ float scoreMove(Move* move) {
         all_opp_attacked |= moves[i].to;
     }
 
-    chess_free_moves_array(moves);
     chess_undo_move(board);
 
     if (move->to & all_opp_attacked) {
@@ -204,7 +205,9 @@ int compareMoves(const void* a, const void* b) {
     return 0;
 }
 
+#define max_best_value_and(X) fmaxf(bestValue, X)
 
+// TODO: move depthleft to first parameter
 float alphaBeta(float alpha, float beta, int depthleft) {
 #ifdef STATS
     ++searched_nodes;
@@ -227,12 +230,13 @@ float alphaBeta(float alpha, float beta, int depthleft) {
     float alpha_orig = alpha;
 
     float bestValue = -INFINITY;
+    int bestMoveIndex = 0;
 
     GEN_HASH
     if (is_not_quiescence) {
-        if (entry->depth >= depthleft && entry->hash == hash_orig
-            && (entry->type == TYPE_EXACT || entry->type == TYPE_LOWER_BOUND && entry->eval >= beta
-                || entry->type == TYPE_UPPER_BOUND && entry->eval < alpha)) {
+        if (entry->depth >= depthleft && entry->hash == hash_orig / TRANSPOSITION_SIZE
+            && (entry->type == TYPE_EXACT || (entry->type == TYPE_LOWER_BOUND && entry->eval >= beta)
+                || (entry->type == TYPE_UPPER_BOUND && entry->eval < alpha))) {
 #ifdef STATS
             transposition_hits++;
             cached_nodes += entry->num_nodes;
@@ -245,7 +249,7 @@ float alphaBeta(float alpha, float beta, int depthleft) {
         if (bestValue >= beta) {
             return bestValue;
         }
-        alpha = fmaxf(alpha, bestValue);
+        alpha = max_best_value_and(alpha);
     }
 
     bool is_check = chess_in_check(board);
@@ -256,12 +260,24 @@ float alphaBeta(float alpha, float beta, int depthleft) {
     for (int i = 0; i < len_moves; i++) {
         if (is_not_quiescence || moves[i].capture || is_check) {
             chess_make_move(board, moves[i]);
-            float score = -alphaBeta(-beta, -alpha, depthleft - 1);
+            float score;
+            if (i == 0) {
+                score = -alphaBeta(-beta, -alpha, depthleft - 1);
+            }
+            else {
+                score = -alphaBeta(-alpha - 1, -alpha, depthleft - 1);
+                if (score > alpha && score < beta)
+                    score = -alphaBeta(-beta, -score, depthleft - 1);
+            }
             chess_undo_move(board);
 
 
-            bestValue = fmaxf(score, bestValue);
-            alpha = fmaxf(alpha, bestValue);
+            if (score > bestValue) {
+                bestMoveIndex = i;
+            }
+
+            bestValue = max_best_value_and(score);
+            alpha = max_best_value_and(alpha);
             if (score >= beta) {
                 break;
             }
@@ -289,6 +305,7 @@ float alphaBeta(float alpha, float beta, int depthleft) {
         entry->type = bestValue <= alpha_orig ? TYPE_UPPER_BOUND
                     : bestValue >= beta       ? TYPE_LOWER_BOUND
                                               : TYPE_EXACT;
+        entry->bestMove = moves[bestMoveIndex];
     }
 
     return bestValue;
