@@ -3,6 +3,9 @@
 #include "math.h"
 #include "setjmp.h"
 
+#undef INFINITY
+#define INFINITY 9999999
+
 #ifndef MINIMIZE
     #define STATS
     #include "stdio.h"
@@ -38,8 +41,7 @@ struct {
     uint64_t num_nodes;
 #endif
     uint64_t hash;
-    float eval;
-    int type, depth;
+    int eval, type, depth;
     Move bestMove;
 } transposition_table[TRANSPOSITION_SIZE];
 
@@ -88,19 +90,19 @@ int countBit1Fast(unsigned long n) {
 // midgame fail: r5k1/p6p/6p1/2Qb1r2/P6K/8/RP5P/6R1 w - - 0 33
 // prevent promotion: 8/3K4/4P3/8/8/8/6k1/7q w - - 0 1
 
-float material_of(PlayerColor color) {
-    return +stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100.0f
-         + stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300.0f
-         + stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP)) * 320.0f
-         + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500.0f
-         + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900.0f;
+int material_of(PlayerColor color) {
+    return +stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100
+         + stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300
+         + stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP)) * 320
+         + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500
+         + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900;
 }
 #define GET_ENDGAME_WEIGHT(COLOR)                                                          \
     chess_get_bitboard(board, COLOR, KNIGHT) | chess_get_bitboard(board, COLOR, BISHOP)    \
         | chess_get_bitboard(board, COLOR, ROOK) | chess_get_bitboard(board, COLOR, QUEEN) \
         | chess_get_bitboard(board, COLOR, KING)
 
-float static_eval_me(PlayerColor color) {
+int static_eval_me(PlayerColor color) {
 #ifdef STATIC_ASSERTS
     static_assert(WHITE == 0, "WHITE isn't 0");
     static_assert(BLACK == 1, "BLACK isn't 1");
@@ -108,10 +110,11 @@ float static_eval_me(PlayerColor color) {
     static_assert((BLACK ^ 1) == WHITE, "BLACK isn't inverse of WHITE");
 #endif
 
-    float material = material_of(color);
+    int material = material_of(color);
 
     float endgame_weight = 1.0f - (stdc_count_ones_ul(GET_ENDGAME_WEIGHT(color) | GET_ENDGAME_WEIGHT(color ^ 1)) / 16.0f);
 
+    // TODO: merge
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
     int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color ^ 1, KING));
 
@@ -127,7 +130,7 @@ float static_eval_me(PlayerColor color) {
     return material;
 }
 
-float static_eval() {
+int static_eval() {
     if (state == GAME_CHECKMATE) {
         return -INFINITY;
     }
@@ -146,17 +149,17 @@ float static_eval() {
     auto entry = &transposition_table[hash];
 
 
-float scoreMove(Move* move) {
+int scoreMove(Move* move) {
     GEN_HASH
     if (move->from == entry->bestMove.from && move->to == entry->bestMove.to) {
-        return 9999999;
+        return INFINITY;
     }
 
 
     PieceType movePiece = chess_get_piece_from_bitboard(board, move->from);
 
     // TODO: replace with multiplication once we use ints for score
-    float score = 0;
+    int score = 0;
 
     if (move->capture) {
         score += 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
@@ -189,11 +192,11 @@ float scoreMove(Move* move) {
 
 int compareMoves(const void* a, const void* b) {
 #ifdef STATIC_ASSERTS
-    float sa = scoreMove((Move*)a);
-    float sb = scoreMove((Move*)b);
+    int sa = scoreMove((Move*)a);
+    int sb = scoreMove((Move*)b);
 #else
-    float sa = scoreMove(a);
-    float sb = scoreMove(b);
+    int sa = scoreMove(a);
+    int sb = scoreMove(b);
 #endif
 
     if (sa < sb) {
@@ -208,7 +211,7 @@ int compareMoves(const void* a, const void* b) {
 #define max_best_value_and(X) fmaxf(bestValue, X)
 
 // TODO: move depthleft to first parameter
-float alphaBeta(float alpha, float beta, int depthleft) {
+int alphaBeta(int alpha, int beta, int depthleft) {
 #ifdef STATS
     ++searched_nodes;
     uint64_t old_searched_nodes = searched_nodes;
@@ -227,9 +230,9 @@ float alphaBeta(float alpha, float beta, int depthleft) {
         return 0;
     }
 
-    float alpha_orig = alpha;
+    int alpha_orig = alpha;
 
-    float bestValue = -INFINITY;
+    int bestValue = -INFINITY;
     int bestMoveIndex = 0;
 
     GEN_HASH
@@ -260,7 +263,7 @@ float alphaBeta(float alpha, float beta, int depthleft) {
     for (int i = 0; i < len_moves; i++) {
         if (is_not_quiescence || moves[i].capture || is_check) {
             chess_make_move(board, moves[i]);
-            float score;
+            int score;
             if (i == 0) {
                 score = -alphaBeta(-beta, -alpha, depthleft - 1);
             }
@@ -326,11 +329,11 @@ void print_tt_stats(void) {
     );
     fflush(stdout);
 }
-void print_stats(int depth, float bestValue) {
+void print_stats(int depth, int bestValue) {
     printf(
         "info depth %d score cp %d nodes %lu nps %lu hashfull %lu time %lu\n",
         depth,
-        (int)bestValue,
+        bestValue,
         searched_nodes,
         (searched_nodes * 1000) / (chess_get_elapsed_time_millis() + 1),
         hashes_used * 1000 / TRANSPOSITION_SIZE,
@@ -341,8 +344,8 @@ void print_stats(int depth, float bestValue) {
 }
 #endif
 
-// TODO: remove args
-int main(int argc, char* argv[]) {
+// TODO: maybe remove void
+int main(void) {
     while (true) {
         board = chess_get_board();
 
@@ -367,25 +370,16 @@ int main(int argc, char* argv[]) {
             if (setjmp(timeout_jmp) != 0)
                 goto search_canceled;
 
-            float bestValue = -INFINITY;
+            int bestValue = -INFINITY;
             for (int i = 0; i < len_moves; i++) {
-                // TODO: should be safe to remove
-                if (chess_get_elapsed_time_millis() > time_left) {
-                    goto search_canceled;
-                }
-
                 chess_make_move(board, moves[i]);
-                float score = -alphaBeta(-INFINITY, INFINITY, depth);
+                int score = -alphaBeta(-INFINITY, INFINITY, depth);
                 chess_undo_move(board);
 
                 if (score > bestValue) {
                     bestValue = score;
                     bestMove = moves[i];
                 }
-            }
-            // TODO: should be safe to remove
-            if (chess_get_elapsed_time_millis() > time_left) {
-                goto search_canceled;
             }
 #ifdef STATS
             print_stats(depth, bestValue);
