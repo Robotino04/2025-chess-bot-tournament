@@ -143,14 +143,15 @@ int static_eval() {
 }
 
 
-#define GEN_HASH /* parse fix */                    \
-    uint64_t hash_orig = chess_zobrist_key(board);  \
-    uint64_t hash = hash_orig % TRANSPOSITION_SIZE; \
-    auto entry = &transposition_table[hash];
+#define GEN_HASH /* parse fix */              \
+    uint64_t hash = chess_zobrist_key(board); \
+    auto entry = &transposition_table[hash % TRANSPOSITION_SIZE];
 
 
 int scoreMove(Move* move) {
+    // either remove or use entry
     GEN_HASH
+
     if (move->from == entry->bestMove.from && move->to == entry->bestMove.to) {
         return INFINITY;
     }
@@ -237,7 +238,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
 
     GEN_HASH
     if (is_not_quiescence) {
-        if (entry->depth >= depthleft && entry->hash == hash_orig / TRANSPOSITION_SIZE
+        if (entry->depth >= depthleft && entry->hash == hash
             && (entry->type == TYPE_EXACT || (entry->type == TYPE_LOWER_BOUND && entry->eval >= beta)
                 || (entry->type == TYPE_UPPER_BOUND && entry->eval < alpha))) {
 #ifdef STATS
@@ -289,7 +290,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
 
 
     // TODO: maybe redundant, but lets leave it here for now
-    if (is_not_quiescence && (entry->depth < depthleft || !(entry->hash == hash_orig))) {
+    if (is_not_quiescence && (entry->depth < depthleft || !(entry->hash == hash))) {
 
 #ifdef STATS
         entry->num_nodes = (searched_nodes + cached_nodes) - (old_searched_nodes + old_cached_nodes);
@@ -302,7 +303,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
         }
 #endif
 
-        entry->hash = hash_orig;
+        entry->hash = hash;
         entry->eval = bestValue;
         entry->depth = depthleft;
         entry->type = bestValue <= alpha_orig ? TYPE_UPPER_BOUND
