@@ -35,8 +35,11 @@ example_bot_minimized.c: example_bot_clean.c minimizer/src/main.rs
 tournament: example_bot example_bot_minimized tournament.sh
 	./track_progress.sh ./tournament.sh
 
-test: example_bot test.sh
+test: example_bot test.sh UHO_Lichess_4852_v1.epd
 	./test.sh
+
+UHO_Lichess_4852_v1.epd: UHO_Lichess_4852_v1.epd.zip
+	unzip UHO_Lichess_4852_v1.epd.zip
 
 clean:
 	rm -f example_bot example_bot_minimized example_bot_clean.c example_bot_minimized.c example_bot_clean_pcpp.c example_bot_clean_clang_tidy.c example_bot_clean_clang_format.c 
