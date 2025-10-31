@@ -149,7 +149,6 @@ int static_eval() {
 
 
 int scoreMove(Move* move) {
-    // either remove or use entry
     GEN_HASH
 
     if (move->from == entry->bestMove.from && move->to == entry->bestMove.to) {
@@ -364,10 +363,7 @@ int main(void) {
             transposition_overwrites = 0;
             new_hashes = 0;
 #endif
-            // new board so longjmp doesn't have to undo moves anything
-            chess_free_board(board);
-            board = chess_get_board();
-
+            // TODO: don't compare to 0
             if (setjmp(timeout_jmp) != 0)
                 goto search_canceled;
 
@@ -382,13 +378,14 @@ int main(void) {
                     bestMove = moves[i];
                 }
             }
+
 #ifdef STATS
             print_stats(depth, bestValue);
 #endif
 
 
             prevBestMove = bestMove;
-            if (bestValue == INFINITY) {
+            if (bestValue >= INFINITY) {
                 break;
             }
         }
