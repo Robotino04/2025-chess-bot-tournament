@@ -322,21 +322,27 @@ int alphaBeta(int alpha, int beta, int depthleft) {
 }
 
 #ifdef STATS
-void print_tt_stats(void) {
+void print_tt_stats(uint64_t prev_searched_nodes) {
     printf(
-        "info string Transposition hits: %lu, overwrites: %lu, new_hashes: %lu, overwriteRate: %f%%, "
-        "hits/search: "
-        "%f%%, hits/total: %f%%\n",
+        "info string "
+        "Transposition hits: %lu"
+        ", overwrites: %lu"
+        ", new_hashes: %lu"
+        ", overwriteRate: %f%%"
+        ", hits/search: %f%%"
+        ", hits/total: %f%%"
+        ", branching factor: %f\n",
         transposition_hits,
         transposition_overwrites,
         new_hashes,
         (float)transposition_overwrites / (float)(transposition_overwrites + new_hashes) * 100.0f,
         (float)transposition_hits / (float)(searched_nodes) * 100.0f,
-        (float)cached_nodes / (float)(searched_nodes + cached_nodes) * 100.0f
+        (float)cached_nodes / (float)(searched_nodes + cached_nodes) * 100.0f,
+        (float)searched_nodes / (float)prev_searched_nodes
     );
     fflush(stdout);
 }
-void print_stats(int depth, int bestValue) {
+void print_stats(int depth, int bestValue, uint64_t prev_searched_nodes) {
     printf(
         "info depth %d score cp %d nodes %lu nps %lu hashfull %lu time %lu\n",
         depth,
@@ -346,13 +352,14 @@ void print_stats(int depth, int bestValue) {
         hashes_used * 1000 / TRANSPOSITION_SIZE,
         chess_get_elapsed_time_millis()
     );
-    print_tt_stats();
+    print_tt_stats(prev_searched_nodes);
     fflush(stdout);
 }
 #endif
 
 // TODO: maybe remove void
 int main(void) {
+    // TODO: make recursive
     while (true) {
         board = chess_get_board();
 
@@ -362,8 +369,12 @@ int main(void) {
         FETCH_MOVES
         Move prevBestMove = *moves, bestMove = prevBestMove;
 
+        uint64_t prev_searched_nodes = 0;
+
         for (int depth = 1; depth < 100; depth++) {
 #ifdef STATS
+            prev_searched_nodes = searched_nodes;
+
             searched_nodes = 0;
             transposition_hits = 0;
             cached_nodes = 0;
@@ -387,7 +398,7 @@ int main(void) {
             }
 
 #ifdef STATS
-            print_stats(depth, bestValue);
+            print_stats(depth, bestValue, prev_searched_nodes);
 #endif
 
 
