@@ -4,6 +4,7 @@ cutechess-cli \
     -engine "name=NB v9_negascout_tc" cmd=./backups/v9_negascout_tc \
     -openings file="UHO_Lichess_4852_v1.epd" format=epd order=random policy=default \
     -games 999999 -concurrency 32 \
+    -recover \
     -each tc=1 timemargin=200 proto=uci restart=on \
     -ratinginterval 10 \
     -sprt elo0=0 elo1=10 alpha=0.05 beta=0.05
