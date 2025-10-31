@@ -54,6 +54,10 @@ uint64_t cached_nodes;
 uint64_t transposition_overwrites;
 uint64_t new_hashes;
 uint64_t researches;
+uint64_t first_move_cuts;
+uint64_t first_move_non_cuts;
+uint64_t negascout_hits;
+uint64_t negascout_misses;
 #endif
 
 #define MAX_MOVES 256
@@ -278,7 +282,15 @@ int alphaBeta(int alpha, int beta, int depthleft) {
                 score = -alphaBeta(-alpha - 1, -alpha, depthleft - 1);
                 if (score > alpha && score < beta) {
                     score = -alphaBeta(-beta, -score, depthleft - 1);
+#ifdef STATS
+                    negascout_misses++;
+#endif
                 }
+#ifdef STATS
+                else {
+                    negascout_hits++;
+                }
+#endif
             }
             chess_undo_move(board);
 
@@ -290,6 +302,15 @@ int alphaBeta(int alpha, int beta, int depthleft) {
             bestValue = max_best_value_and(score);
             alpha = max_best_value_and(alpha);
             if (score >= beta) {
+#ifdef STATS
+                if (i == 0) {
+                    first_move_cuts++;
+                }
+                else {
+                    first_move_non_cuts++;
+                }
+#endif
+
                 break;
             }
         }
@@ -297,8 +318,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
 
 
     // TODO: maybe redundant, but lets leave it here for now
-    if (is_not_quiescence && (entry->depth < depthleft || !(entry->hash == hash))) {
-
+    if (is_not_quiescence && (entry->depth < depthleft || entry->hash != hash)) {
 #ifdef STATS
         entry->num_nodes = (searched_nodes + cached_nodes) - (old_searched_nodes + old_cached_nodes);
         if (entry->type == TYPE_UNUSED) {
@@ -325,21 +345,27 @@ int alphaBeta(int alpha, int beta, int depthleft) {
 #ifdef STATS
 void print_tt_stats(uint64_t prev_searched_nodes) {
     printf(
-        "info string "
-        "Transposition hits: %lu"
-        ", overwrites: %lu"
-        ", new_hashes: %lu"
-        ", overwriteRate: %f%%"
-        ", hits/search: %f%%"
-        ", hits/total: %f%%"
-        ", branching factor: %f"
-        ", researches: %lu\n",
+        "info string Transposition Table\n"
+        "info string    hits: %lu\n"
+        "info string        hits/search: %f%%\n"
+        "info string        hits/total: %f%%\n"
+        "info string    overwrites: %lu\n"
+        "info string        rate: %f%%\n"
+        "info string    new_hashes: %lu\n"
+        "info string Alpha-Beta Search\n"
+        "info string    first move cuts: %f%%\n"
+        "info string    negascout hits: %f%%\n"
+        "info string Root Search\n"
+        "info string    branching factor: %f\n"
+        "info string    aspiration researches: %lu\n",
         transposition_hits,
-        transposition_overwrites,
-        new_hashes,
-        (float)transposition_overwrites / (float)(transposition_overwrites + new_hashes) * 100.0f,
         (float)transposition_hits / (float)(searched_nodes) * 100.0f,
         (float)cached_nodes / (float)(searched_nodes + cached_nodes) * 100.0f,
+        transposition_overwrites,
+        (float)transposition_overwrites / (float)(transposition_overwrites + new_hashes) * 100.0f,
+        new_hashes,
+        (float)first_move_cuts / (float)(first_move_non_cuts + first_move_cuts) * 100.0f,
+        (float)negascout_hits / (float)(negascout_hits + negascout_misses) * 100.0f,
         (float)searched_nodes / (float)prev_searched_nodes,
         researches
     );
@@ -363,6 +389,10 @@ void print_stats(int depth, int bestValue, uint64_t prev_searched_nodes) {
 // TODO: maybe remove void
 int main(void) {
     // TODO: make recursive
+#ifdef STATS
+    searched_nodes = 1;
+#endif
+
     while (true) {
         board = chess_get_board();
 
@@ -385,6 +415,12 @@ int main(void) {
             transposition_overwrites = 0;
             new_hashes = 0;
             researches = 0;
+
+            first_move_cuts = 0;
+            first_move_non_cuts = 0;
+
+            negascout_hits = 0;
+            negascout_misses = 0;
 #endif
             // TODO: don't compare to 0
             if (setjmp(timeout_jmp) != 0)
@@ -405,7 +441,7 @@ int main(void) {
 
                         // fail-low: the real score is lower than alpha (aka. prevBestValue - alphaOffset).
                         // so no need to search the exact value if this is already bad enough
-                        if (prevBestValue - alphaOffset <= bestValue) {
+                        if (score <= bestValue) {
                             break;
                         }
                     }

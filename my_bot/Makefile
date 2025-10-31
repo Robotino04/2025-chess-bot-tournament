@@ -35,11 +35,28 @@ example_bot_minimized.c: example_bot_clean.c minimizer/src/main.rs
 tournament: example_bot example_bot_minimized tournament.sh
 	./track_progress.sh ./tournament.sh
 
-test: example_bot test.sh UHO_Lichess_4852_v1.epd
-	./test.sh
+COMMON_TEST_ARGS := \
+	-engine "name=NB Latest" cmd=./example_bot \
+	-engine "name=NB v10_aspiration_window_tc" cmd=./backups/v10_aspiration_window_tc \
+	-openings file="UHO_Lichess_4852_v1.epd" format=epd order=random policy=default \
+	-games 999999 -concurrency 32 \
+	-recover \
+	-each tc=1 timemargin=200 proto=uci restart=on \
+	-ratinginterval 10
+
+
+test: example_bot UHO_Lichess_4852_v1.epd
+	cutechess-cli $(COMMON_TEST_ARGS) -sprt elo0=0 elo1=10 alpha=0.05 beta=0.05 | tee /tmp/match.log
+
+untest: example_bot UHO_Lichess_4852_v1.epd
+	cutechess-cli $(COMMON_TEST_ARGS) -sprt elo0=-10 elo1=0 alpha=0.05 beta=0.05 | tee /tmp/match.log
+
+monitor:
+	./monitor.sh
 
 UHO_Lichess_4852_v1.epd: UHO_Lichess_4852_v1.epd.zip
 	unzip UHO_Lichess_4852_v1.epd.zip
+	touch $@
 
 clean:
 	rm -f example_bot example_bot_minimized example_bot_clean.c example_bot_minimized.c example_bot_clean_pcpp.c example_bot_clean_clang_tidy.c example_bot_clean_clang_format.c 
