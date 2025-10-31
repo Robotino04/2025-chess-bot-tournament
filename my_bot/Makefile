@@ -1,7 +1,7 @@
-CFLAGS= -std=c23 -O3 -L.
+CFLAGS= -std=c23 -O3 -L. -g
 LDFLAGS= -lchess -lm
 
-.PHONY: all clean measure measure_minimized
+.PHONY: all clean measure measure_minimized tournament test
 
 all: measure example_bot example_bot_minimized measure_minimized
 
@@ -31,6 +31,12 @@ example_bot_clean.c: example_bot.c minimize.py uncrustify.ini minimal.clang-form
 example_bot_minimized.c: example_bot_clean.c minimizer/src/main.rs
 	java -jar ~/Downloads/toknt.jar example_bot_clean.c
 	cd minimizer && cargo run --release
+
+tournament: example_bot example_bot_minimized tournament.sh
+	./track_progress.sh ./tournament.sh
+
+test: example_bot test.sh
+	./test.sh
 
 clean:
 	rm -f example_bot example_bot_minimized example_bot_clean.c example_bot_minimized.c example_bot_clean_pcpp.c example_bot_clean_clang_tidy.c example_bot_clean_clang_format.c 
