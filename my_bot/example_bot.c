@@ -53,6 +53,7 @@ uint64_t transposition_hits;
 uint64_t cached_nodes;
 uint64_t transposition_overwrites;
 uint64_t new_hashes;
+uint64_t researches;
 #endif
 
 #define MAX_MOVES 256
@@ -331,14 +332,16 @@ void print_tt_stats(uint64_t prev_searched_nodes) {
         ", overwriteRate: %f%%"
         ", hits/search: %f%%"
         ", hits/total: %f%%"
-        ", branching factor: %f\n",
+        ", branching factor: %f"
+        ", researches: %lu\n",
         transposition_hits,
         transposition_overwrites,
         new_hashes,
         (float)transposition_overwrites / (float)(transposition_overwrites + new_hashes) * 100.0f,
         (float)transposition_hits / (float)(searched_nodes) * 100.0f,
         (float)cached_nodes / (float)(searched_nodes + cached_nodes) * 100.0f,
-        (float)searched_nodes / (float)prev_searched_nodes
+        (float)searched_nodes / (float)prev_searched_nodes,
+        researches
     );
     fflush(stdout);
 }
@@ -364,10 +367,11 @@ int main(void) {
         board = chess_get_board();
 
         // TODO: divide by 20 to allow full-game time management
-        time_left = chess_get_time_millis(); // + increment /2 if we had that
+        time_left = chess_get_time_millis() / 30; // + increment /2 if we had that
 
         FETCH_MOVES
         Move prevBestMove = *moves, bestMove = prevBestMove;
+        int prevBestValue = 0;
 
         uint64_t prev_searched_nodes = 0;
 
@@ -380,6 +384,7 @@ int main(void) {
             cached_nodes = 0;
             transposition_overwrites = 0;
             new_hashes = 0;
+            researches = 0;
 #endif
             // TODO: don't compare to 0
             if (setjmp(timeout_jmp) != 0)
@@ -388,7 +393,35 @@ int main(void) {
             int bestValue = -INFINITY;
             for (int i = 0; i < len_moves; i++) {
                 chess_make_move(board, moves[i]);
-                int score = -alphaBeta(-INFINITY, INFINITY, depth);
+                int alphaOffset = 25;
+                int betaOffset = 25;
+                int score;
+                while (true) {
+                    // invert prevBestValue back, because we also invert the search results
+                    score = -alphaBeta(-prevBestValue - alphaOffset, -prevBestValue + betaOffset, depth);
+                    // don't invert because both are inverted once
+                    if (score <= prevBestValue - alphaOffset) {
+                        alphaOffset *= 2;
+
+                        // fail-low: the real score is lower than alpha (aka. prevBestValue - alphaOffset).
+                        // so no need to search the exact value if this is already bad enough
+                        if (prevBestValue - alphaOffset <= bestValue) {
+                            break;
+                        }
+                    }
+                    else if (score >= prevBestValue + betaOffset) {
+                        betaOffset *= 2;
+                        // fail-high: the real score is higher than beta (aka. prevBestValue + betaOffset).
+                        // so we keep searching with a bigger window
+                    }
+                    else {
+                        break;
+                    }
+#ifdef STATS
+                    researches++;
+#endif
+                }
+                prevBestValue = score;
                 chess_undo_move(board);
 
                 if (score > bestValue) {
