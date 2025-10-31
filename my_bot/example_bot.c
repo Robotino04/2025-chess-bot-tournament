@@ -112,13 +112,20 @@ int static_eval_me(PlayerColor color) {
 
     int material = material_of(color);
 
-    float endgame_weight = 1.0f - (stdc_count_ones_ul(GET_ENDGAME_WEIGHT(color) | GET_ENDGAME_WEIGHT(color ^ 1)) / 16.0f);
-
-    // TODO: merge
+    float endgame_weight = 0;
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
-    int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color ^ 1, KING));
+    endgame_weight += stdc_count_ones_ul(GET_ENDGAME_WEIGHT(color));
 
-    if (material > material_of(color ^ 1) + 200) {
+    color ^= 1;
+
+    int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
+    endgame_weight += stdc_count_ones_ul(GET_ENDGAME_WEIGHT(color));
+
+    endgame_weight = 1.0f - endgame_weight / 16.0f;
+
+
+    // color is inverted already
+    if (material > material_of(color) + 200) {
 #define king2_file king2 % 8
 #define king2_rank king2 / 8
 
@@ -158,7 +165,6 @@ int scoreMove(Move* move) {
 
     PieceType movePiece = chess_get_piece_from_bitboard(board, move->from);
 
-    // TODO: replace with multiplication once we use ints for score
     int score = 0;
 
     if (move->capture) {
@@ -269,8 +275,9 @@ int alphaBeta(int alpha, int beta, int depthleft) {
             }
             else {
                 score = -alphaBeta(-alpha - 1, -alpha, depthleft - 1);
-                if (score > alpha && score < beta)
+                if (score > alpha && score < beta) {
                     score = -alphaBeta(-beta, -score, depthleft - 1);
+                }
             }
             chess_undo_move(board);
 
