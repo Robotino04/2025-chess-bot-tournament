@@ -163,42 +163,26 @@ int static_eval() {
 int scoreMove(Move* move) {
     GEN_HASH
 
+#define SCORE_TIER_PV INFINITY
+#define SCORE_TIER_CAPTURE 1000
+#define SCORE_TIER_PROMOTION 900
+#define SCORE_TIER_DEFAULT 0
+
+
     if (move->from == entry->bestMove.from && move->to == entry->bestMove.to) {
-        return INFINITY;
+        return SCORE_TIER_PV;
     }
 
-
-    PieceType movePiece = chess_get_piece_from_bitboard(board, move->from);
-
-    int score = 0;
 
     if (move->capture) {
-        score += 10.0f * chess_get_piece_from_bitboard(board, move->to) - movePiece;
+        return SCORE_TIER_CAPTURE + 10 * chess_get_piece_from_bitboard(board, move->to)
+             - chess_get_piece_from_bitboard(board, move->from);
+    }
+    if (move->promotion) {
+        return SCORE_TIER_PROMOTION + move->promotion;
     }
 
-    // add piece if it is a promotion
-    score += move->promotion;
-
-
-    /* maybe if we get the bitboards
-    int movelen;
-    chess_skip_turn(board);
-    Move* moves = chess_get_legal_moves(board, &movelen);
-
-    BitBoard all_opp_attacked = 0;
-    for (int i = 0; i < movelen; i++) {
-        all_opp_attacked |= moves[i].to;
-    }
-
-    chess_undo_move(board);
-
-    if (move->to & all_opp_attacked) {
-        score -= movePiece;
-    }
-
-    */
-
-    return score;
+    return SCORE_TIER_DEFAULT;
 }
 
 int compareMoves(const void* a, const void* b) {
