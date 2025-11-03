@@ -36,7 +36,7 @@ static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITI
 
 
 Board* board;
-uint64_t time_left;
+int64_t time_left;
 jmp_buf timeout_jmp;
 GameState state;
 
@@ -215,7 +215,7 @@ int compareMoves(const void* a, const void* b) {
 
 // TODO: move depthleft to first parameter
 int alphaBeta(int alpha, int beta, int depthleft) {
-    if (chess_get_elapsed_time_millis() >= time_left) {
+    if ((int64_t)chess_get_elapsed_time_millis() >= time_left) {
         longjmp(timeout_jmp, 1234);
     }
 
@@ -335,6 +335,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
 #ifdef STATS
 void print_tt_stats(uint64_t prev_searched_nodes) {
     printf(
+        "info string %ldms left"
         "info string Transposition Table\n"
         "info string    hits: %lu\n"
         "info string        hits/search: %f%%\n"
@@ -350,6 +351,7 @@ void print_tt_stats(uint64_t prev_searched_nodes) {
         "info string Root Search\n"
         "info string    branching factor: %f\n"
         "info string    aspiration researches: %lu\n",
+        (int64_t)chess_get_time_millis(),
         transposition_hits,
         (float)transposition_hits / (float)(searched_nodes) * 100.0f,
         (float)cached_nodes / (float)(searched_nodes + cached_nodes) * 100.0f,
@@ -390,7 +392,7 @@ int main(void) {
     while (true) {
         board = chess_get_board();
 
-        time_left = MAX(chess_get_time_millis() / 40, 5);
+        time_left = MAX((int64_t)chess_get_time_millis() / 40, 5);
 
         // including the sort here saved one token at some point
         // TODO: recheck
