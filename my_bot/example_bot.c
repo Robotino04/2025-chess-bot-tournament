@@ -38,7 +38,9 @@ GameState state;
 
 struct {
 #ifdef STATS
-    uint64_t num_nodes;
+    struct {
+        uint64_t num_nodes;
+    } stats;
 #endif
     uint64_t hash;
     int eval, type, depth;
@@ -237,7 +239,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
                 || (entry->type == TYPE_UPPER_BOUND && entry->eval < alpha))) {
 #ifdef STATS
             transposition_hits++;
-            cached_nodes += entry->num_nodes;
+            cached_nodes += entry->stats.num_nodes;
 #endif
             return entry->eval;
         }
@@ -302,7 +304,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
     // TODO: maybe redundant, but lets leave it here for now
     if (is_not_quiescence && (entry->depth < depthleft || entry->hash != hash)) {
 #ifdef STATS
-        entry->num_nodes = (searched_nodes + cached_nodes) - (old_searched_nodes + old_cached_nodes);
+        entry->stats.num_nodes = (searched_nodes + cached_nodes) - (old_searched_nodes + old_cached_nodes);
         if (entry->type == TYPE_UNUSED) {
             hashes_used++;
             new_hashes++;
