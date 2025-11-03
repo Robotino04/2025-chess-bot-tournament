@@ -6,6 +6,9 @@
 #undef INFINITY
 #define INFINITY 9999999
 
+#define MIN(A, B) fminf(A, B)
+#define MAX(A, B) fmaxf(A, B)
+
 #ifndef MINIMIZE
     #define STATS
     #include "stdio.h"
@@ -138,7 +141,7 @@ int static_eval_me(PlayerColor color) {
 #define king2_file king2 % 8
 #define king2_rank king2 / 8
 
-        material += ((7 - fminf(king2_file, 7 - king2_file) - fminf(king2_rank, 7 - king2_rank)) * 5.0f
+        material += ((7 - MIN(king2_file, 7 - king2_file) - MIN(king2_rank, 7 - king2_rank)) * 5.0f
                      + (14 - abs(king % 8 - king2_file) - abs(king / 8 - king2_rank)))
                   * endgame_weight;
     }
@@ -207,7 +210,7 @@ int compareMoves(const void* a, const void* b) {
     return 0;
 }
 
-#define max_best_value_and(X) fmaxf(bestValue, X)
+#define max_best_value_and(X) MAX(bestValue, X)
 
 // TODO: move depthleft to first parameter
 int alphaBeta(int alpha, int beta, int depthleft) {
