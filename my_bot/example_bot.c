@@ -22,6 +22,7 @@
 #define stdc_count_ones_ul(x) __builtin_popcountl(x)
 
 #ifdef STATIC_ASSERTS
+static_assert(((long long)(int)INFINITY) == (long)INFINITY, "INFINITY is too large");
 static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITION_SIZE isn't a power of two");
 #endif
 
@@ -46,6 +47,16 @@ struct {
     int eval, type, depth;
     Move bestMove;
 } transposition_table[TRANSPOSITION_SIZE];
+#ifdef STATIC_ASSERTS
+/*
+TODO:
+static_assert(
+    sizeof(transposition_table) - sizeof(transposition_table[0].stats) * TRANSPOSITION_SIZE <= 1024 * 1024 *
+1024, "Transposition table is too big"
+);
+*/
+#endif
+
 
 #ifdef STATS
 uint64_t hashes_used;
@@ -69,19 +80,8 @@ uint64_t negascout_misses;
 
 
 // TODO
-// - [ ] macro away the board parameter: #define chess_get_legal_moves(...) chess_get_legal_moves(board, __VA_ARGS__)
-// - [ ] remove braces of single-line if-statements
-// - [ ] make common parameters globals
 // - [ ] test without custom libchess build
-
-/*
-int countBit1Fast(unsigned long n) {
-    int c = 0;
-    for (; n; ++c)
-        n &= n - 1;
-    return c;
-}
-*/
+// - [ ] expand and remove unneeded parens
 
 
 // notshit fen: r3k2r/p1p2ppp/2pp4/4p3/P7/2P1PbP1/RP5P/2Q2K1R w kq - 0 20
@@ -93,6 +93,8 @@ int countBit1Fast(unsigned long n) {
 // 2k5/8/2K5/8/8/8/4R3/1R6 w - - 16 9
 // 3k4/8/8/8/8/8/8/3R3K b - - 0 1
 // 8/4k3/8/4K3/8/8/8/2R5 w - - 41 22
+//
+// don't give away queen: rn2k1nr/ppp2ppp/4p3/2bp1b2/3q4/P7/RPP1PPPP/1NBQKBNR w Kkq - 0 8
 //
 // midgame fail: r5k1/p6p/6p1/2Qb1r2/P6K/8/RP5P/6R1 w - - 0 33
 // prevent promotion: 8/3K4/4P3/8/8/8/6k1/7q w - - 0 1
@@ -387,6 +389,9 @@ int main(void) {
         // TODO: divide by 20 to allow full-game time management
         time_left = chess_get_time_millis() / 30; // + increment /2 if we had that
 
+
+        // including the sort here saved one token at some point
+        // TODO: recheck
         FETCH_MOVES
         qsort(moves, len_moves, sizeof(Move), compareMoves);
 
