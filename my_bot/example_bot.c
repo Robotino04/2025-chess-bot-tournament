@@ -212,17 +212,18 @@ int compareMoves(const void* a, const void* b) {
 
 #define max_best_value_and(X) MAX(bestValue, X)
 
+
 // TODO: move depthleft to first parameter
 int alphaBeta(int alpha, int beta, int depthleft) {
+    if (chess_get_elapsed_time_millis() >= time_left) {
+        longjmp(timeout_jmp, 1234);
+    }
+
 #ifdef STATS
     ++searched_nodes;
     uint64_t old_searched_nodes = searched_nodes;
     uint64_t old_cached_nodes = cached_nodes;
 #endif
-
-    if (chess_get_elapsed_time_millis() > time_left) {
-        longjmp(timeout_jmp, 1234);
-    }
 
 
 #define is_not_quiescence depthleft > 0
@@ -389,9 +390,7 @@ int main(void) {
     while (true) {
         board = chess_get_board();
 
-        // TODO: divide by 20 to allow full-game time management
-        time_left = chess_get_time_millis() / 30; // + increment /2 if we had that
-
+        time_left = MAX(chess_get_time_millis() / 40, 5);
 
         // including the sort here saved one token at some point
         // TODO: recheck
