@@ -402,7 +402,9 @@ int main(void) {
         time_left = chess_get_time_millis() / 30; // + increment /2 if we had that
 
         FETCH_MOVES
-        Move prevBestMove = *moves, bestMove = prevBestMove;
+        qsort(moves, len_moves, sizeof(Move), compareMoves);
+
+        Move prevBestMove = *moves, bestMove = *moves;
         int prevBestValue = 0;
 
         uint64_t prev_searched_nodes = 0;
