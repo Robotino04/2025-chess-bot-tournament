@@ -275,22 +275,20 @@ int alphaBeta(int alpha, int beta, int depthleft) {
         if (is_not_quiescence || moves[i].capture || is_check) {
             chess_make_move(board, moves[i]);
             int score;
-            if (i == 0) {
+            if (depthleft <= 2 || i == 0) {
                 score = -alphaBeta(-beta, -alpha, depthleft - 1);
             }
             else {
                 score = -alphaBeta(-alpha - 1, -alpha, depthleft - 1);
-                if (score > alpha && score < beta) {
-                    score = -alphaBeta(-beta, -score, depthleft - 1);
+                if (score > alpha && score <= beta) {
+                    score = -alphaBeta(-beta, -alpha, depthleft - 1);
 #ifdef STATS
                     negascout_misses++;
-#endif
                 }
-#ifdef STATS
                 else {
                     negascout_hits++;
-                }
 #endif
+                }
             }
             chess_undo_move(board);
 
@@ -354,7 +352,9 @@ void print_tt_stats(uint64_t prev_searched_nodes) {
         "info string    new_hashes: %lu\n"
         "info string Alpha-Beta Search\n"
         "info string    first move cuts: %f%%\n"
-        "info string    negascout hits: %f%%\n"
+        "info string    negascout hits: %lu\n"
+        "info string        misses: %lu\n"
+        "info string        rate: %f%%\n"
         "info string Root Search\n"
         "info string    branching factor: %f\n"
         "info string    aspiration researches: %lu\n",
@@ -365,6 +365,8 @@ void print_tt_stats(uint64_t prev_searched_nodes) {
         (float)transposition_overwrites / (float)(transposition_overwrites + new_hashes) * 100.0f,
         new_hashes,
         (float)first_move_cuts / (float)(first_move_non_cuts + first_move_cuts) * 100.0f,
+        negascout_hits,
+        negascout_misses,
         (float)negascout_hits / (float)(negascout_hits + negascout_misses) * 100.0f,
         (float)searched_nodes / (float)prev_searched_nodes,
         researches
