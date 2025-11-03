@@ -37,11 +37,11 @@ tournament: example_bot example_bot_minimized tournament.sh
 
 COMMON_TEST_ARGS := \
 	-engine "name=NB Latest" cmd=./example_bot \
-	-engine "name=NB v13_better_ordering" cmd=./backups/v13_better_ordering \
+	-engine "name=NB v14_time_control" cmd=./backups/v14_time_control \
 	-openings file="UHO_Lichess_4852_v1.epd" format=epd order=random policy=default \
 	-games 999999 -concurrency 32 \
 	-recover \
-	-each tc=1 timemargin=200 proto=uci restart=on \
+	-each tc=1 timemargin=200 proto=uci \
 	-ratinginterval 10
 
 
