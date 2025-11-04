@@ -74,6 +74,8 @@ uint64_t first_move_cuts;
 uint64_t first_move_non_cuts;
 uint64_t negascout_hits;
 uint64_t negascout_misses;
+uint64_t lmr_hits;
+uint64_t lmr_misses;
 #endif
 
 #define MAX_MOVES 256
@@ -200,6 +202,8 @@ int compareMoves(const void* a, const void* b) {
     int sa = scoreMove(a);
     int sb = scoreMove(b);
 #endif
+    // TODO: replace with sb - sa
+    // (I think, maybe reversed)
 
     if (sa < sb) {
         return 1;
@@ -252,10 +256,10 @@ int alphaBeta(int alpha, int beta, int depthleft) {
     }
     else {
         bestValue = static_eval();
+        alpha = max_best_value_and(alpha);
         if (bestValue >= beta) {
             return bestValue;
         }
-        alpha = max_best_value_and(alpha);
     }
 
     bool is_check = chess_in_check(board);
@@ -266,19 +270,40 @@ int alphaBeta(int alpha, int beta, int depthleft) {
     for (int i = 0; i < len_moves; i++) {
         if (is_not_quiescence || moves[i].capture || is_check) {
             chess_make_move(board, moves[i]);
+
+#define NULL_WINDOW -alpha - 1, -alpha
+#define NORMAL_WINDOW -beta, -alpha
+
             int score;
             if (depthleft <= 2 || i == 0) {
-                score = -alphaBeta(-beta, -alpha, depthleft - 1);
+                score = -alphaBeta(NORMAL_WINDOW, depthleft - 1);
             }
             else {
-                score = -alphaBeta(-alpha - 1, -alpha, depthleft - 1);
-                if (score > alpha && score <= beta) {
-                    score = -alphaBeta(-beta, -alpha, depthleft - 1);
+                bool dont_reduce = moves[i].capture || is_check || depthleft < 2 || i < 3;
+
+                score = -alphaBeta(NULL_WINDOW, depthleft - 1 - !dont_reduce);
+                if (score > alpha) {
+                    // low-depth search looks promising. retry with full depth (if it was even reduced)
+                    if (!dont_reduce) {
+                        score = -alphaBeta(NULL_WINDOW, depthleft - 1);
+                    }
+
+                    if (score > alpha && score <= beta) {
+                        // full-depth search isn't conclusive, so try a full-window one
+                        score = -alphaBeta(NORMAL_WINDOW, depthleft - 1);
 #ifdef STATS
-                    negascout_misses++;
+                        negascout_misses++;
+                    }
+                    else {
+                        negascout_hits++;
+#endif
+                    }
+
+#ifdef STATS
+                    lmr_misses++;
                 }
                 else {
-                    negascout_hits++;
+                    lmr_hits++;
 #endif
                 }
             }
@@ -348,6 +373,9 @@ void print_tt_stats(uint64_t prev_searched_nodes) {
         "info string    negascout hits: %lu\n"
         "info string        misses: %lu\n"
         "info string        rate: %f%%\n"
+        "info string    lmr hits: %lu\n"
+        "info string        misses: %lu\n"
+        "info string        rate: %f%%\n"
         "info string Root Search\n"
         "info string    branching factor: %f\n"
         "info string    aspiration researches: %lu\n",
@@ -362,6 +390,9 @@ void print_tt_stats(uint64_t prev_searched_nodes) {
         negascout_hits,
         negascout_misses,
         (float)negascout_hits / (float)(negascout_hits + negascout_misses) * 100.0f,
+        lmr_hits,
+        lmr_misses,
+        (float)lmr_misses / (float)(lmr_hits + lmr_misses) * 100.0f,
         (float)searched_nodes / (float)prev_searched_nodes,
         researches
     );
@@ -420,6 +451,9 @@ int main(void) {
 
             negascout_hits = 0;
             negascout_misses = 0;
+
+            lmr_hits = 0;
+            lmr_misses = 0;
 #endif
             // TODO: don't compare to 0
             if (setjmp(timeout_jmp) != 0)
