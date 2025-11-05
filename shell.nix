@@ -31,6 +31,7 @@ in
       pkgs.uncrustify
       (pkgs.python3.withPackages pythonPkgs)
 
+      pkgs.gdb
       pkgs.cargo
       pkgs.libclang
       pkgs.rustc

@@ -3,8 +3,13 @@ example_bot_clean.c
 example_bot_clean_*.c
 example_bot_minimized
 example_bot_minimized.c
+train_nn
 
 .cache/
 backups/
 compile_commands.json
+
 UHO_Lichess_4852_v1.epd
+lichess_db_eval.jsonl.zst
+lichess_db_eval.jsonl
+lichess_db_eval_processed.raw

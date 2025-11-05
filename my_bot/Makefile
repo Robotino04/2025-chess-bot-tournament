@@ -3,7 +3,7 @@ LDFLAGS= -lchess -lm
 
 .PHONY: all clean measure measure_minimized tournament test
 
-all: measure example_bot example_bot_minimized measure_minimized
+all: measure example_bot example_bot_minimized measure_minimized train_nn
 
 measure: example_bot.c
 	java -jar ~/Downloads/toknt.jar example_bot.c
@@ -16,6 +16,9 @@ example_bot: example_bot.c
 
 example_bot_minimized: example_bot_minimized.c
 	gcc $(CFLAGS) $(LDFLAGS) -o example_bot_minimized example_bot_minimized.c
+
+train_nn: train_nn.c
+	gcc $(CFLAGS) $(LDFLAGS) -o train_nn train_nn.c
 
 example_bot_clean.c: example_bot.c minimize.py uncrustify.ini minimal.clang-format minimal.clang-tidy-fixes
 	pcpp --passthru-unfound-includes --passthru-includes ".*" --line-directive "" -D MINIMIZE example_bot.c -o example_bot_clean_pcpp.c
