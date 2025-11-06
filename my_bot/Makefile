@@ -1,5 +1,5 @@
 CFLAGS= -std=c23 -O3 -L. -g
-LDFLAGS= -lchess -lm
+LDFLAGS= -lchess -lm -g
 
 .PHONY: all clean measure measure_minimized tournament test
 

@@ -6,7 +6,7 @@ let
     src = ./src/c/.;
     buildPhase = ''
       mkdir -p $out/lib
-      $CC -O3 -o $out/lib/libchess.so -shared bitboard.c chessapi.c -fPIC
+      $CC -O3 -g -o $out/lib/libchess.so -shared bitboard.c chessapi.c -fPIC
     '';
   };
   pythonPkgs = ps: [
@@ -36,6 +36,8 @@ in
       pkgs.libclang
       pkgs.rustc
       pkgs.samply
+      pkgs.gnuplot
+      pkgs.feedgnuplot
     ];
 
     LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath packages;
