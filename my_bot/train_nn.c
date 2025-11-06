@@ -292,12 +292,15 @@ char compressed_weights[1523] = {
 
 #define LAYER_1_PARAMS (64 * 6 * 2)
 #define LAYER_2_PARAMS (10)
+#define LAYER_3_PARAMS (1)
 
-#define LAYER_1_SIZE (LAYER_1_PARAMS * LAYER_2_PARAMS)
-#define LAYER_2_SIZE (LAYER_2_PARAMS)
+constexpr const int layer_sizes[] = {LAYER_1_PARAMS, LAYER_2_PARAMS, LAYER_3_PARAMS};
+float weights1[LAYER_1_PARAMS][LAYER_2_PARAMS];
+float weights2[LAYER_2_PARAMS][LAYER_3_PARAMS];
+float biases1[LAYER_2_PARAMS];
+float biases2[LAYER_3_PARAMS];
 
-float l1weights[LAYER_1_SIZE] = {0};
-float l2weights[LAYER_2_SIZE] = {0};
+#define ARRAY_SIZE_OF(ARR) (sizeof(ARR) / sizeof((ARR)[0]))
 
 /*
 void decompress_weights(char* compressed_weights) {
@@ -333,78 +336,72 @@ float ask_static_eval(PreprocessedBoard board) {
          * (board.is_white ? 1 : -1);
 }
 
+#define INDEX_2D(X, Y, WIDTH) ((Y) * (WIDTH) + (X))
 
-float ask_nn(PreprocessedBoard board, float expected_value, float lr, float* loss_out) {
-    float input[LAYER_1_PARAMS] = {0.0f};
-    for (int i = 0; i < LAYER_1_PARAMS; i++) {
-        input[i] = (board.bitboards[i % 2][i / 2 % 6] >> (i / (6 * 2)) & 0b1);
-        input[i] *= 2.0f;
-        input[i] -= 1.0f;
-    }
-
-    float l1out[LAYER_2_PARAMS] = {0.0f};
-    for (int j = 0; j < LAYER_2_PARAMS; j++) {
-        for (int i = 0; i < LAYER_1_PARAMS; i++) {
-            l1out[j] += l1weights[j * LAYER_1_PARAMS + i] * input[i];
+void matrix_multiply(float* restrict a, float* restrict b, float* restrict output, int shape1, int shape2, int shape3) {
+    for (int y = 0; y < shape3; y++) {
+        for (int x = 0; x < shape1; x++) {
+            output[INDEX_2D(x, y, shape3)] = 0;
+            for (int i = 0; i < shape2; i++) {
+                output[INDEX_2D(x, y, shape3)] += a[INDEX_2D(x, i, shape2)] * b[INDEX_2D(i, y, shape3)];
+            }
         }
-        // l1out[j] = tanhf(l1out[j]);
-        l1out[j] = fmaxf(l1out[j], 0.0f);
     }
-
-    float l2out = 0.0f;
-
-    for (int i = 0; i < LAYER_2_PARAMS; i++) {
-        l2out += l1out[i] * l2weights[i];
-    }
-
-    const float prediction = l2out * (board.is_white ? 1 : -1);
-
-    float loss = fabsf(prediction - expected_value);
-    // loss *= loss;
-
-    *loss_out = loss;
-
-#define MAX_GRADIENT 100.0f
-
-    float l2grad[LAYER_2_PARAMS] = {0.0f};
-    float d_loss = (prediction - expected_value) > 0 ? 1 : -1; // derivative of MSE
-    for (int j = 0; j < LAYER_2_PARAMS; j++) {
-        l2grad[j] = d_loss * l1out[j];
-        if (l2grad[j] > MAX_GRADIENT)
-            l2grad[j] = MAX_GRADIENT;
-        if (l2grad[j] < -MAX_GRADIENT)
-            l2grad[j] = -MAX_GRADIENT;
-    }
-
-
-    float l1grad[LAYER_2_PARAMS][LAYER_1_PARAMS] = {0.0f};
-    for (int j = 0; j < LAYER_2_PARAMS; j++) {
-        float loss_hidden = loss * l2weights[j];
-
-        // tanh derivative: 1 - (tanh(z))^2
-        // float d_act = 1.0f - (l1out[j] * l1out[j]);
-        float d_act = l1out[j] > 0.0f ? 1.0f : 0.0f;
-        loss_hidden *= d_act;
-
-        for (int i = 0; i < LAYER_1_PARAMS; i++) {
-            l1grad[j][i] = loss_hidden * input[i];
-            if (l1grad[j][i] > MAX_GRADIENT)
-                l1grad[j][i] = MAX_GRADIENT;
-            if (l1grad[j][i] < -MAX_GRADIENT)
-                l1grad[j][i] = -MAX_GRADIENT;
+}
+void matrix_accumulate(float* restrict a, float* restrict b, int shape1, int shape2) {
+    for (int y = 0; y < shape2; y++) {
+        for (int x = 0; x < shape1; x++) {
+            a[INDEX_2D(x, y, shape1)] += b[INDEX_2D(x, y, shape1)];
         }
-        // grad_b1[j] = d_hidden;
     }
+}
 
-    for (int j = 0; j < LAYER_2_PARAMS; j++) {
-        l2weights[j] -= lr * l2grad[j];
-        for (int i = 0; i < LAYER_1_PARAMS; i++) {
-            l1weights[j * LAYER_1_PARAMS + i] -= lr * l1grad[j][i];
+void matrix_activate_tanh(float* restrict a, int shape1, int shape2) {
+    for (int y = 0; y < shape2; y++) {
+        for (int x = 0; x < shape1; x++) {
+            a[INDEX_2D(x, y, shape1)] = tanhf(a[INDEX_2D(x, y, shape1)]);
         }
-        // b1[j] -= lr * grad_b1[j];
+    }
+}
+
+float matrix_loss(float* restrict prediction, float* restrict target, int shape1, int shape2) {
+    float loss = 0;
+    for (int y = 0; y < shape2; y++) {
+        for (int x = 0; x < shape1; x++) {
+            float this_error = (prediction[INDEX_2D(x, y, shape1)] - target[INDEX_2D(x, y, shape1)]);
+            loss += this_error * this_error;
+        }
     }
 
-    return prediction;
+    return loss / (float)(shape1 * shape2);
+}
+
+void input_as_matrix(PreprocessedBoard* restrict boards, float* restrict mat, int batch_size) {
+    for (int b = 0; b < batch_size; b++) {
+        for (int i = 0; i < LAYER_1_PARAMS; i++) {
+            mat[i] = (boards[b].bitboards[i % 2][i / 2 % 6] >> (i / (6 * 2)) & 0b1);
+            mat[i] *= 2.0f;
+            mat[i] -= 1.0f;
+        }
+    }
+}
+
+void pass_forwards(float* restrict inputs, int batch_size, float* restrict predictions) {
+    float output1[LAYER_2_PARAMS * batch_size];
+    matrix_multiply(inputs, &**weights1, output1, batch_size, LAYER_1_PARAMS, LAYER_2_PARAMS);
+    matrix_accumulate(output1, biases1, batch_size, LAYER_2_PARAMS);
+    matrix_activate_tanh(output1, batch_size, LAYER_2_PARAMS);
+
+    float output2[LAYER_3_PARAMS * batch_size];
+    matrix_multiply(output1, &**weights2, output2, batch_size, LAYER_2_PARAMS, LAYER_3_PARAMS);
+    matrix_accumulate(output2, biases2, batch_size, LAYER_3_PARAMS);
+    matrix_activate_tanh(output2, batch_size, LAYER_3_PARAMS);
+
+    memcpy(predictions, output2, LAYER_3_PARAMS * batch_size);
+}
+
+void pass_backwards(float* predictions, float* targets, int batch_size, float loss) {
+
 }
 
 
@@ -529,17 +526,27 @@ int main(int argc, const char** argv) {
         // decompress_weights(compressed_weights);
 
 
-        for (int i = 0; i < LAYER_1_SIZE; i++) {
-            l1weights[i] = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+        for (int i = 0; i < ARRAY_SIZE_OF(weights1); i++) {
+            for (int j = 0; j < ARRAY_SIZE_OF(weights1[0]); j++) {
+                weights1[i][j] = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+            }
         }
-        for (int i = 0; i < LAYER_2_SIZE; i++) {
-            l2weights[i] = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+        for (int i = 0; i < ARRAY_SIZE_OF(weights2); i++) {
+            for (int j = 0; j < ARRAY_SIZE_OF(weights2[0]); j++) {
+                weights2[i][j] = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+            }
+        }
+        for (int i = 0; i < ARRAY_SIZE_OF(biases1); i++) {
+            biases1[i] = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+        }
+        for (int i = 0; i < ARRAY_SIZE_OF(biases2); i++) {
+            biases2[i] = ((float)rand() / (float)RAND_MAX) * 2 - 1;
         }
 
         int num_iterations = 1'000'000;
 
         const int num_epochs = 1000;
-        const int batch_size = 10'000;
+        const int batch_size = 1024 * 4;
         const float lr_decay = 0.98f;
 
         FILE* gnuplot = popen(
@@ -575,17 +582,25 @@ int main(int argc, const char** argv) {
             }
 
 
-            for (int i = 0; i < 1'000'000; i++) {
-                float stockfish_eval = all_boards->boards[i].stockfish_eval;
+            for (int i = 0; i < 1'000'000; i += batch_size) {
+                float stockfish_eval[batch_size];
+                for (int j = 0; j < batch_size; j++) {
+                    stockfish_eval[i] = all_boards->boards[i + j].stockfish_eval;
+                }
 
-                float sample_loss;
-                float nn_eval = ask_nn(all_boards->boards[i], stockfish_eval, lr, &sample_loss); // includes backprop
-                float static_eval = ask_static_eval(all_boards->boards[i]); // includes backprop
+                float inputs[batch_size * LAYER_1_PARAMS];
+                input_as_matrix(all_boards->boards + i, inputs, batch_size);
+
+                float outputs[batch_size * LAYER_3_PARAMS];
+                pass_forwards(inputs, batch_size, outputs);
+                float sample_loss = matrix_loss(outputs, stockfish_eval, batch_size, LAYER_3_PARAMS);
+
+                float static_eval = ask_static_eval(all_boards->boards[i]);
 
                 epoch_loss += sample_loss;
-                float sample_diff = fabsf(stockfish_eval - nn_eval);
+                float sample_diff = fabsf(stockfish_eval[0] - outputs[0]);
                 epoch_diff += sample_diff;
-                float static_diff = fabsf(stockfish_eval - static_diff);
+                float static_diff = fabsf(stockfish_eval[0] - static_diff);
                 epoch_static_diff += static_diff;
 
                 // Optional: print progress every batch
