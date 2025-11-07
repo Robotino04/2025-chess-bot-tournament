@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "stddef.h"
+#include "assert.h"
 #include "stdio.h"
 #include "stdlib.h"
 #include "unistd.h"
@@ -145,10 +146,10 @@ void start_stockfish(void) {
     }
 
     int child_stdin_fds[2];
-    pipe(child_stdin_fds);
+    (void)pipe(child_stdin_fds);
 
     int child_stdout_fds[2];
-    pipe(child_stdout_fds);
+    (void)pipe(child_stdout_fds);
 
     printf("Starting stockfish\n");
 
@@ -169,7 +170,7 @@ void start_stockfish(void) {
         char buffer[250] = {0};
 
         while (strcmp(buffer, "uciok\n") != 0) {
-            fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
+            (void)fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
             printf("%s", buffer);
         }
 
@@ -217,7 +218,7 @@ int ask_stockfish(Board* board) {
     fflush(stockfish_state.child_stdin);
 
     while (strcmp(buffer, "readyok\n") != 0) {
-        fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
+        (void)fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
         printf("%s", buffer);
     }
 
@@ -226,7 +227,7 @@ int ask_stockfish(Board* board) {
     fflush(stockfish_state.child_stdin);
 
     while (strcmp(buffer, "readyok\n") != 0) {
-        fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
+        (void)fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
         printf("%s", buffer);
     }
     printf("ready to go\n");
@@ -240,7 +241,7 @@ int ask_stockfish(Board* board) {
     bool has_eval = false;
     int eval = 0;
     while (!has_eval) {
-        fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
+        (void)fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
 
 
         char* token = strtok(buffer, " \n");
@@ -295,12 +296,34 @@ char compressed_weights[1523] = {
 #define LAYER_3_PARAMS (1)
 
 constexpr const int layer_sizes[] = {LAYER_1_PARAMS, LAYER_2_PARAMS, LAYER_3_PARAMS};
-float weights1[LAYER_1_PARAMS][LAYER_2_PARAMS];
-float weights2[LAYER_2_PARAMS][LAYER_3_PARAMS];
-float biases1[LAYER_2_PARAMS];
-float biases2[LAYER_3_PARAMS];
 
-#define ARRAY_SIZE_OF(ARR) (sizeof(ARR) / sizeof((ARR)[0]))
+template <int N, int M>
+struct Matrix {
+    float data[N][M];
+
+    constexpr float at(int n, int m) const {
+        assert(n >= 0 && n < N);
+        assert(m >= 0 && m < M);
+        return data[n][m];
+    }
+    constexpr float& at(int n, int m) {
+        assert(n >= 0 && n < N);
+        assert(m >= 0 && m < M);
+        return data[n][m];
+    }
+    constexpr int getN() const {
+        return N;
+    }
+    constexpr int getM() const {
+        return M;
+    }
+};
+
+Matrix<LAYER_1_PARAMS, LAYER_2_PARAMS> weights1;
+Matrix<LAYER_2_PARAMS, LAYER_3_PARAMS> weights2;
+Matrix<1, LAYER_2_PARAMS> biases1;
+Matrix<1, LAYER_3_PARAMS> biases2;
+
 
 /*
 void decompress_weights(char* compressed_weights) {
@@ -336,72 +359,196 @@ float ask_static_eval(PreprocessedBoard board) {
          * (board.is_white ? 1 : -1);
 }
 
-#define INDEX_2D(X, Y, WIDTH) ((Y) * (WIDTH) + (X))
-
-void matrix_multiply(float* restrict a, float* restrict b, float* restrict output, int shape1, int shape2, int shape3) {
-    for (int y = 0; y < shape3; y++) {
-        for (int x = 0; x < shape1; x++) {
-            output[INDEX_2D(x, y, shape3)] = 0;
-            for (int i = 0; i < shape2; i++) {
-                output[INDEX_2D(x, y, shape3)] += a[INDEX_2D(x, i, shape2)] * b[INDEX_2D(i, y, shape3)];
+template <int N, int M, int O>
+void matrix_multiply(const Matrix<N, M>& a, const Matrix<M, O>& b, Matrix<N, O>& output) {
+    for (int y = 0; y < O; y++) {
+        for (int x = 0; x < N; x++) {
+            output.at(x, y) = 0;
+            for (int i = 0; i < M; i++) {
+                output.at(x, y) += a.at(x, i) * b.at(i, y);
             }
         }
     }
 }
-void matrix_accumulate(float* restrict a, float* restrict b, int shape1, int shape2) {
-    for (int y = 0; y < shape2; y++) {
-        for (int x = 0; x < shape1; x++) {
-            a[INDEX_2D(x, y, shape1)] += b[INDEX_2D(x, y, shape1)];
+template <int N, int M>
+void matrix_flatten(const Matrix<N, M>& a, Matrix<1, M>& b) {
+    for (int y = 0; y < M; y++) {
+        b.at(0, y) = 0;
+        for (int x = 0; x < N; x++) {
+            b.at(0, y) += a.at(x, y);
+        }
+    }
+}
+// a *= b (elementwise)
+template <int N, int M>
+void matrix_fold_el(Matrix<N, M>& a, const Matrix<N, M>& b) {
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            a.at(x, y) *= b.at(x, y);
+        }
+    }
+}
+template <int N, int M>
+void matrix_multiply_el(const Matrix<N, M>& a, const Matrix<N, M>& b, Matrix<N, M>& c) {
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            c.at(x, y) = a.at(x, y) * b.at(x, y);
         }
     }
 }
 
-void matrix_activate_tanh(float* restrict a, int shape1, int shape2) {
-    for (int y = 0; y < shape2; y++) {
-        for (int x = 0; x < shape1; x++) {
-            a[INDEX_2D(x, y, shape1)] = tanhf(a[INDEX_2D(x, y, shape1)]);
+template <int N, int M>
+void matrix_transpose(const Matrix<N, M>& a, Matrix<M, N>& b) {
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            b.at(y, x) = a.at(x, y);
         }
     }
 }
 
-float matrix_loss(float* restrict prediction, float* restrict target, int shape1, int shape2) {
+template <int N, int M>
+void matrix_accumulate_thin(Matrix<N, M>& a, const Matrix<1, M>& b) {
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            a.at(x, y) += b.at(0, y);
+        }
+    }
+}
+
+template <int N, int M>
+void matrix_accumulate(Matrix<N, M>& a, const Matrix<N, M>& b) {
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            a.at(x, y) += b.at(x, y);
+        }
+    }
+}
+template <int N, int M>
+void matrix_reduce(Matrix<N, M>& a, const Matrix<N, M>& b) {
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            a.at(x, y) -= b.at(x, y);
+        }
+    }
+}
+
+template <int N, int M>
+void matrix_activate_tanh(Matrix<N, M>& a) {
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            a.at(x, y) = tanhf(a.at(x, y));
+        }
+    }
+}
+
+template <int N, int M>
+void matrix_deactivate_tanh(Matrix<N, M>& a) {
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            float tanh = tanhf(a.at(x, y));
+            a.at(x, y) = 1.0f - tanh * tanh;
+        }
+    }
+}
+
+template <int N, int M>
+float matrix_loss(const Matrix<N, M>& prediction, const Matrix<N, M>& target) {
     float loss = 0;
-    for (int y = 0; y < shape2; y++) {
-        for (int x = 0; x < shape1; x++) {
-            float this_error = (prediction[INDEX_2D(x, y, shape1)] - target[INDEX_2D(x, y, shape1)]);
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            float this_error = prediction.at(x, y) - target.at(x, y);
             loss += this_error * this_error;
         }
     }
 
-    return loss / (float)(shape1 * shape2);
+    return loss / (float)(N * M);
 }
 
-void input_as_matrix(PreprocessedBoard* restrict boards, float* restrict mat, int batch_size) {
+template <int batch_size, int l1_params>
+void input_as_matrix(const PreprocessedBoard* boards, Matrix<batch_size, l1_params>& mat) {
     for (int b = 0; b < batch_size; b++) {
-        for (int i = 0; i < LAYER_1_PARAMS; i++) {
-            mat[i] = (boards[b].bitboards[i % 2][i / 2 % 6] >> (i / (6 * 2)) & 0b1);
-            mat[i] *= 2.0f;
-            mat[i] -= 1.0f;
+        for (int i = 0; i < l1_params; i++) {
+            mat.at(b, i) = (boards[b].bitboards[i % 2][i / 2 % 6] >> (i / (6 * 2)) & 0b1);
+            mat.at(b, i) *= 2.0f;
+            mat.at(b, i) -= 1.0f;
         }
     }
 }
 
-void pass_forwards(float* restrict inputs, int batch_size, float* restrict predictions) {
-    float output1[LAYER_2_PARAMS * batch_size];
-    matrix_multiply(inputs, &**weights1, output1, batch_size, LAYER_1_PARAMS, LAYER_2_PARAMS);
-    matrix_accumulate(output1, biases1, batch_size, LAYER_2_PARAMS);
-    matrix_activate_tanh(output1, batch_size, LAYER_2_PARAMS);
+template <int batch_size, int l1_params, int l2_params, int l3_params>
+void pass_forwards(
+    const Matrix<batch_size, l1_params>& inputs,
+    Matrix<batch_size, l3_params>& predictions,
+    Matrix<batch_size, l2_params>& unactive_out1,
+    Matrix<batch_size, l3_params>& unactive_out2,
+    Matrix<batch_size, l2_params>& active_out1,
+    Matrix<batch_size, l3_params>& active_out2
+) {
+    Matrix<batch_size, l2_params> output1;
+    matrix_multiply(inputs, weights1, output1);
+    matrix_accumulate_thin(output1, biases1);
+    unactive_out1 = output1;
+    matrix_activate_tanh(output1);
+    active_out1 = output1;
 
-    float output2[LAYER_3_PARAMS * batch_size];
-    matrix_multiply(output1, &**weights2, output2, batch_size, LAYER_2_PARAMS, LAYER_3_PARAMS);
-    matrix_accumulate(output2, biases2, batch_size, LAYER_3_PARAMS);
-    matrix_activate_tanh(output2, batch_size, LAYER_3_PARAMS);
+    Matrix<batch_size, l3_params> output2;
+    matrix_multiply(output1, weights2, output2);
+    matrix_accumulate_thin(output2, biases2);
+    unactive_out2 = output2;
+    matrix_activate_tanh(output2);
+    active_out2 = output2;
 
-    memcpy(predictions, output2, LAYER_3_PARAMS * batch_size);
+    predictions = output2;
 }
 
-void pass_backwards(float* predictions, float* targets, int batch_size, float loss) {
+template <int batch_size, int l1_params, int l2_params, int l3_params>
+void pass_backwards(
+    float loss,
+    const Matrix<batch_size, l3_params>& predictions,
+    const Matrix<batch_size, l3_params>& targets,
+    Matrix<batch_size, l2_params>& unactive_out1,
+    Matrix<batch_size, l3_params>& unactive_out2,
+    const Matrix<batch_size, l2_params>& active_out1,
+    const Matrix<batch_size, l3_params>& active_out2
+) {
+    Matrix<batch_size, l3_params> y_hat_minus_y;
+    y_hat_minus_y = predictions;
 
+    // a -= b
+    matrix_reduce(y_hat_minus_y, targets);
+
+    matrix_deactivate_tanh(unactive_out2);
+
+    Matrix<l2_params, batch_size> active_out_trans1;
+    Matrix<batch_size, l3_params> bias_grad_wide2;
+
+    Matrix<1, l3_params> bias_grad2;
+    Matrix<l2_params, l3_params> weight_grad2;
+
+    matrix_multiply_el(y_hat_minus_y, unactive_out2, bias_grad_wide2);
+    matrix_transpose(active_out1, active_out_trans1);
+    matrix_multiply(active_out_trans1, bias_grad_wide2, weight_grad2);
+    matrix_flatten(bias_grad_wide2, bias_grad2);
+
+    matrix_deactivate_tanh(unactive_out1);
+
+    Matrix<batch_size, l2_params> delta1_wide;
+    Matrix<l3_params, l2_params> weights2_trans;
+
+    matrix_transpose(weights2, weights2_trans);
+    matrix_multiply(bias_grad_wide2, weights2_trans, delta1_wide);
+
+
+    Matrix<l2_params, batch_size> active_out_trans0;
+    Matrix<batch_size, l2_params> bias_grad_wide1;
+
+    Matrix<1, l2_params> bias_grad1;
+    Matrix<l2_params, l2_params> weight_grad1;
+
+    matrix_multiply_el(delta1_wide, unactive_out1, bias_grad_wide1);
+    matrix_transpose(active_out1, active_out_trans0);
+    matrix_multiply(active_out_trans0, bias_grad_wide1, weight_grad1);
+    matrix_flatten(bias_grad_wide1, bias_grad1);
 }
 
 
@@ -414,7 +561,7 @@ PreprocessedBoard preprocess_fen(char* fen) {
     for (int color = 0; color < 2; color++) {
         for (int piece = 0; piece < 6; piece++) {
             for (int i = 0; i < 64; i++) {
-                pp_board.bitboards[color][piece] = chess_get_bitboard(board, color, piece + 1);
+                pp_board.bitboards[color][piece] = chess_get_bitboard(board, (PlayerColor)color, (PieceType)(piece + 1));
             }
         }
     }
@@ -463,7 +610,7 @@ int main(int argc, const char** argv) {
 
         const size_t fen_buffer_space = 5;
 
-        char* memblock = mmap(NULL, sb.st_size + fen_buffer_space, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+        char* memblock = (char*)mmap(NULL, sb.st_size + fen_buffer_space, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
         if (memblock == MAP_FAILED) {
             fprintf(stderr, "mmap failed %s", strerror(errno));
             exit(EXIT_FAILURE);
@@ -476,7 +623,7 @@ int main(int argc, const char** argv) {
         // segfaults if we process all of them
         size_t max_boards = 72'000'000;
 
-        FileFormat* file = malloc(sizeof(FileFormat) + max_boards * sizeof(PreprocessedBoard));
+        FileFormat* file = (FileFormat*)malloc(sizeof(FileFormat) + max_boards * sizeof(PreprocessedBoard));
 
         file->num_boards = process_all_boards(memblock, file->boards, max_boards);
 
@@ -517,7 +664,7 @@ int main(int argc, const char** argv) {
         fstat(fd, &sb);
         printf("Size: %lu\n", (uint64_t)sb.st_size);
 
-        FileFormat* all_boards = mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+        FileFormat* all_boards = (FileFormat*)mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
         if (all_boards == MAP_FAILED) {
             fprintf(stderr, "mmap failed %s", strerror(errno));
             exit(EXIT_FAILURE);
@@ -526,21 +673,25 @@ int main(int argc, const char** argv) {
         // decompress_weights(compressed_weights);
 
 
-        for (int i = 0; i < ARRAY_SIZE_OF(weights1); i++) {
-            for (int j = 0; j < ARRAY_SIZE_OF(weights1[0]); j++) {
-                weights1[i][j] = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+        for (int i = 0; i < weights1.getN(); i++) {
+            for (int j = 0; j < weights1.getM(); j++) {
+                weights1.at(i, j) = ((float)rand() / (float)RAND_MAX) * 2 - 1;
             }
         }
-        for (int i = 0; i < ARRAY_SIZE_OF(weights2); i++) {
-            for (int j = 0; j < ARRAY_SIZE_OF(weights2[0]); j++) {
-                weights2[i][j] = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+        for (int i = 0; i < weights2.getN(); i++) {
+            for (int j = 0; j < weights2.getM(); j++) {
+                weights2.at(i, j) = ((float)rand() / (float)RAND_MAX) * 2 - 1;
             }
         }
-        for (int i = 0; i < ARRAY_SIZE_OF(biases1); i++) {
-            biases1[i] = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+        for (int i = 0; i < biases1.getN(); i++) {
+            for (int j = 0; j < biases1.getM(); j++) {
+                biases1.at(i, j) = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+            }
         }
-        for (int i = 0; i < ARRAY_SIZE_OF(biases2); i++) {
-            biases2[i] = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+        for (int i = 0; i < biases2.getN(); i++) {
+            for (int j = 0; j < biases2.getM(); j++) {
+                biases2.at(i, j) = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+            }
         }
 
         int num_iterations = 1'000'000;
@@ -583,24 +734,32 @@ int main(int argc, const char** argv) {
 
 
             for (int i = 0; i < 1'000'000; i += batch_size) {
-                float stockfish_eval[batch_size];
+                Matrix<batch_size, 1> stockfish_eval;
                 for (int j = 0; j < batch_size; j++) {
-                    stockfish_eval[i] = all_boards->boards[i + j].stockfish_eval;
+                    stockfish_eval.at(j, 0) = all_boards->boards[i + j].stockfish_eval;
                 }
 
-                float inputs[batch_size * LAYER_1_PARAMS];
-                input_as_matrix(all_boards->boards + i, inputs, batch_size);
+                Matrix<batch_size, LAYER_1_PARAMS> inputs;
+                input_as_matrix(all_boards->boards, inputs);
 
-                float outputs[batch_size * LAYER_3_PARAMS];
-                pass_forwards(inputs, batch_size, outputs);
-                float sample_loss = matrix_loss(outputs, stockfish_eval, batch_size, LAYER_3_PARAMS);
+                Matrix<batch_size, LAYER_3_PARAMS> outputs;
+
+                Matrix<batch_size, LAYER_2_PARAMS> unactive_out1;
+                Matrix<batch_size, LAYER_3_PARAMS> unactive_out2;
+                Matrix<batch_size, LAYER_2_PARAMS> active_out1;
+                Matrix<batch_size, LAYER_3_PARAMS> active_out2;
+
+                pass_forwards(inputs, outputs, unactive_out1, unactive_out2, active_out1, active_out2);
+                float sample_loss = matrix_loss(outputs, stockfish_eval);
+
+                pass_backwards<batch_size, LAYER_1_PARAMS>(sample_loss, outputs, stockfish_eval, unactive_out1, unactive_out2, active_out1, active_out2);
 
                 float static_eval = ask_static_eval(all_boards->boards[i]);
 
                 epoch_loss += sample_loss;
-                float sample_diff = fabsf(stockfish_eval[0] - outputs[0]);
+                float sample_diff = fabsf(stockfish_eval.at(0, 0) - outputs.at(0, 0));
                 epoch_diff += sample_diff;
-                float static_diff = fabsf(stockfish_eval[0] - static_diff);
+                float static_diff = fabsf(stockfish_eval.at(0, 0) - static_diff);
                 epoch_static_diff += static_diff;
 
                 // Optional: print progress every batch

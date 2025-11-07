@@ -27,7 +27,8 @@ in
       pkgs.cutechess
       pkgs.stockfish
 
-      pkgs.clang-tools
+      pkgs.llvmPackages.clang-tools
+      pkgs.llvmPackages.clang
       pkgs.uncrustify
       (pkgs.python3.withPackages pythonPkgs)
 
