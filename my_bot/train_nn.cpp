@@ -292,7 +292,7 @@ char compressed_weights[1523] = {
 };
 
 #define LAYER_1_PARAMS (64 * 6 * 2)
-#define LAYER_2_PARAMS (10)
+#define LAYER_2_PARAMS (100)
 #define LAYER_3_PARAMS (1)
 
 constexpr const int layer_sizes[] = {LAYER_1_PARAMS, LAYER_2_PARAMS, LAYER_3_PARAMS};
@@ -360,7 +360,7 @@ float ask_static_eval(PreprocessedBoard board) {
 }
 
 template <int N, int M, int O>
-void matrix_multiply(const Matrix<N, M>& a, const Matrix<M, O>& b, Matrix<N, O>& output) {
+void matrix_multiply(const Matrix<N, M>& __restrict__ a, const Matrix<M, O>& __restrict__ b, Matrix<N, O>& __restrict__ output) {
     for (int y = 0; y < O; y++) {
         for (int x = 0; x < N; x++) {
             output.at(x, y) = 0;
@@ -371,7 +371,7 @@ void matrix_multiply(const Matrix<N, M>& a, const Matrix<M, O>& b, Matrix<N, O>&
     }
 }
 template <int N, int M>
-void matrix_flatten(const Matrix<N, M>& a, Matrix<1, M>& b) {
+void matrix_flatten(const Matrix<N, M>& __restrict__ a, Matrix<1, M>& __restrict__ b) {
     for (int y = 0; y < M; y++) {
         b.at(0, y) = 0;
         for (int x = 0; x < N; x++) {
@@ -381,7 +381,7 @@ void matrix_flatten(const Matrix<N, M>& a, Matrix<1, M>& b) {
 }
 // a *= b (elementwise)
 template <int N, int M>
-void matrix_fold_el(Matrix<N, M>& a, const Matrix<N, M>& b) {
+void matrix_fold_el(Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restrict__ b) {
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) *= b.at(x, y);
@@ -389,16 +389,24 @@ void matrix_fold_el(Matrix<N, M>& a, const Matrix<N, M>& b) {
     }
 }
 template <int N, int M>
-void matrix_multiply_el(const Matrix<N, M>& a, const Matrix<N, M>& b, Matrix<N, M>& c) {
+void matrix_multiply_el(const Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restrict__ b, Matrix<N, M>& __restrict__ c) {
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             c.at(x, y) = a.at(x, y) * b.at(x, y);
         }
     }
 }
+template <int N, int M>
+void matrix_multiply_scalar_inplace(Matrix<N, M>& __restrict__ a, const float b) {
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            a.at(x, y) *= b;
+        }
+    }
+}
 
 template <int N, int M>
-void matrix_transpose(const Matrix<N, M>& a, Matrix<M, N>& b) {
+void matrix_transpose(const Matrix<N, M>& __restrict__ a, Matrix<M, N>& __restrict__ b) {
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             b.at(y, x) = a.at(x, y);
@@ -407,7 +415,7 @@ void matrix_transpose(const Matrix<N, M>& a, Matrix<M, N>& b) {
 }
 
 template <int N, int M>
-void matrix_accumulate_thin(Matrix<N, M>& a, const Matrix<1, M>& b) {
+void matrix_accumulate_thin(Matrix<N, M>& __restrict__ a, const Matrix<1, M>& __restrict__ b) {
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) += b.at(0, y);
@@ -416,7 +424,7 @@ void matrix_accumulate_thin(Matrix<N, M>& a, const Matrix<1, M>& b) {
 }
 
 template <int N, int M>
-void matrix_accumulate(Matrix<N, M>& a, const Matrix<N, M>& b) {
+void matrix_accumulate(Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restrict__ b) {
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) += b.at(x, y);
@@ -424,7 +432,7 @@ void matrix_accumulate(Matrix<N, M>& a, const Matrix<N, M>& b) {
     }
 }
 template <int N, int M>
-void matrix_reduce(Matrix<N, M>& a, const Matrix<N, M>& b) {
+void matrix_reduce(Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restrict__ b) {
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) -= b.at(x, y);
@@ -433,7 +441,7 @@ void matrix_reduce(Matrix<N, M>& a, const Matrix<N, M>& b) {
 }
 
 template <int N, int M>
-void matrix_activate_tanh(Matrix<N, M>& a) {
+void matrix_activate_tanh(Matrix<N, M>& __restrict__ a) {
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) = tanhf(a.at(x, y));
@@ -442,7 +450,7 @@ void matrix_activate_tanh(Matrix<N, M>& a) {
 }
 
 template <int N, int M>
-void matrix_deactivate_tanh(Matrix<N, M>& a) {
+void matrix_deactivate_tanh(Matrix<N, M>& __restrict__ a) {
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             float tanh = tanhf(a.at(x, y));
@@ -452,7 +460,7 @@ void matrix_deactivate_tanh(Matrix<N, M>& a) {
 }
 
 template <int N, int M>
-float matrix_loss(const Matrix<N, M>& prediction, const Matrix<N, M>& target) {
+float matrix_loss(const Matrix<N, M>& __restrict__ prediction, const Matrix<N, M>& __restrict__ target) {
     float loss = 0;
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
@@ -465,7 +473,7 @@ float matrix_loss(const Matrix<N, M>& prediction, const Matrix<N, M>& target) {
 }
 
 template <int batch_size, int l1_params>
-void input_as_matrix(const PreprocessedBoard* boards, Matrix<batch_size, l1_params>& mat) {
+void input_as_matrix(const PreprocessedBoard* __restrict__ boards, Matrix<batch_size, l1_params>& __restrict__ mat) {
     for (int b = 0; b < batch_size; b++) {
         for (int i = 0; i < l1_params; i++) {
             mat.at(b, i) = (boards[b].bitboards[i % 2][i / 2 % 6] >> (i / (6 * 2)) & 0b1);
@@ -503,13 +511,14 @@ void pass_forwards(
 
 template <int batch_size, int l1_params, int l2_params, int l3_params>
 void pass_backwards(
-    float loss,
-    const Matrix<batch_size, l3_params>& predictions,
-    const Matrix<batch_size, l3_params>& targets,
-    Matrix<batch_size, l2_params>& unactive_out1,
-    Matrix<batch_size, l3_params>& unactive_out2,
-    const Matrix<batch_size, l2_params>& active_out1,
-    const Matrix<batch_size, l3_params>& active_out2
+    float lr,
+    const Matrix<batch_size, l3_params>& __restrict__ predictions,
+    const Matrix<batch_size, l3_params>& __restrict__ targets,
+    const Matrix<batch_size, l1_params>& __restrict__ inputs,
+    Matrix<batch_size, l2_params>& __restrict__ unactive_out1,
+    Matrix<batch_size, l3_params>& __restrict__ unactive_out2,
+    const Matrix<batch_size, l2_params>& __restrict__ active_out1,
+    const Matrix<batch_size, l3_params>& __restrict__ active_out2
 ) {
     Matrix<batch_size, l3_params> y_hat_minus_y;
     y_hat_minus_y = predictions;
@@ -517,7 +526,7 @@ void pass_backwards(
     // a -= b
     matrix_reduce(y_hat_minus_y, targets);
 
-    matrix_deactivate_tanh(unactive_out2);
+    matrix_multiply_scalar_inplace(y_hat_minus_y, 1.0f / (float)(batch_size * l3_params));
 
     Matrix<l2_params, batch_size> active_out_trans1;
     Matrix<batch_size, l3_params> bias_grad_wide2;
@@ -539,16 +548,28 @@ void pass_backwards(
     matrix_multiply(bias_grad_wide2, weights2_trans, delta1_wide);
 
 
-    Matrix<l2_params, batch_size> active_out_trans0;
+    Matrix<l1_params, batch_size> active_out_trans0;
     Matrix<batch_size, l2_params> bias_grad_wide1;
 
     Matrix<1, l2_params> bias_grad1;
-    Matrix<l2_params, l2_params> weight_grad1;
+    Matrix<l1_params, l2_params> weight_grad1;
 
     matrix_multiply_el(delta1_wide, unactive_out1, bias_grad_wide1);
-    matrix_transpose(active_out1, active_out_trans0);
+    matrix_transpose(inputs, active_out_trans0);
     matrix_multiply(active_out_trans0, bias_grad_wide1, weight_grad1);
     matrix_flatten(bias_grad_wide1, bias_grad1);
+    // update
+    const float step_size = lr;
+
+    matrix_multiply_scalar_inplace(weight_grad1, -step_size);
+    matrix_accumulate(weights1, weight_grad1);
+    matrix_multiply_scalar_inplace(weight_grad2, -step_size);
+    matrix_accumulate(weights2, weight_grad2);
+
+    matrix_multiply_scalar_inplace(bias_grad1, -step_size);
+    matrix_accumulate(biases1, bias_grad1);
+    matrix_multiply_scalar_inplace(bias_grad2, -step_size);
+    matrix_accumulate(biases2, bias_grad2);
 }
 
 
@@ -697,8 +718,10 @@ int main(int argc, const char** argv) {
         int num_iterations = 1'000'000;
 
         const int num_epochs = 1000;
-        const int batch_size = 1024 * 4;
-        const float lr_decay = 0.98f;
+        const int batch_size = 128;
+        const float lr_decay = 0.99f;
+
+        const int log_steps = 200;
 
         FILE* gnuplot = popen(
             "feedgnuplot"
@@ -707,13 +730,13 @@ int main(int argc, const char** argv) {
             " --title 'Training Progress'"
             " --xlabel 'Epoch'"
             " --ylabel 'Loss'"
-            //" --y2 1"
-            " --ymin -100",
+            " --y2 1"
+            " --y2 2",
             "w"
         );
 
 
-        float lr = 0.05;
+        float lr = 0.0001;
         float prev_loss = INFINITY;
 
         for (int epoch = 0; epoch < num_epochs; epoch++) {
@@ -733,50 +756,63 @@ int main(int argc, const char** argv) {
             }
 
 
-            for (int i = 0; i < 1'000'000; i += batch_size) {
-                Matrix<batch_size, 1> stockfish_eval;
+            printf("Training\n");
+            for (int i = 0; i + batch_size - 1 < all_boards->num_boards; i += batch_size) {
+                static Matrix<batch_size, 1> stockfish_eval;
                 for (int j = 0; j < batch_size; j++) {
-                    stockfish_eval.at(j, 0) = all_boards->boards[i + j].stockfish_eval;
+                    stockfish_eval.at(j, 0) = all_boards->boards[i + j].stockfish_eval
+                                            * (all_boards->boards[i + j].is_white ? 1.0f : -1.0f);
                 }
+                matrix_multiply_scalar_inplace(stockfish_eval, 1.0f);
 
-                Matrix<batch_size, LAYER_1_PARAMS> inputs;
+                static Matrix<batch_size, LAYER_1_PARAMS> inputs;
                 input_as_matrix(all_boards->boards, inputs);
 
-                Matrix<batch_size, LAYER_3_PARAMS> outputs;
+                static Matrix<batch_size, LAYER_3_PARAMS> outputs;
 
-                Matrix<batch_size, LAYER_2_PARAMS> unactive_out1;
-                Matrix<batch_size, LAYER_3_PARAMS> unactive_out2;
-                Matrix<batch_size, LAYER_2_PARAMS> active_out1;
-                Matrix<batch_size, LAYER_3_PARAMS> active_out2;
+                static Matrix<batch_size, LAYER_2_PARAMS> unactive_out1;
+                static Matrix<batch_size, LAYER_3_PARAMS> unactive_out2;
+                static Matrix<batch_size, LAYER_2_PARAMS> active_out1;
+                static Matrix<batch_size, LAYER_3_PARAMS> active_out2;
 
                 pass_forwards(inputs, outputs, unactive_out1, unactive_out2, active_out1, active_out2);
                 float sample_loss = matrix_loss(outputs, stockfish_eval);
 
-                pass_backwards<batch_size, LAYER_1_PARAMS>(sample_loss, outputs, stockfish_eval, unactive_out1, unactive_out2, active_out1, active_out2);
+                pass_backwards<batch_size, LAYER_1_PARAMS>(lr, outputs, stockfish_eval, inputs, unactive_out1, unactive_out2, active_out1, active_out2);
 
                 float static_eval = ask_static_eval(all_boards->boards[i]);
+                float unscaled_stockfish_eval = all_boards->boards[i].stockfish_eval
+                                              * (all_boards->boards[i].is_white ? 1.0f : -1.0f);
 
                 epoch_loss += sample_loss;
-                float sample_diff = fabsf(stockfish_eval.at(0, 0) - outputs.at(0, 0));
+                float sample_diff = fabsf(unscaled_stockfish_eval - outputs.at(0, 0));
                 epoch_diff += sample_diff;
-                float static_diff = fabsf(stockfish_eval.at(0, 0) - static_diff);
+                float static_diff = fabsf(unscaled_stockfish_eval - static_eval);
                 epoch_static_diff += static_diff;
 
                 // Optional: print progress every batch
-                if ((i + 1) % batch_size == 0) {
+                if ((i + batch_size) % (log_steps * batch_size) == 0) {
                     printf(
-                        "[Epoch %d] %d/%lu (%.02f%%) | Loss: %.4f | Delta: ±%.4f | Static: ±%.4f\n",
-                        epoch + 1,
-                        i + 1,
+                        "[Epoch %d] %d/%lu (%.02f%%) | Loss: %.4f | Delta: ±%.4f | Static: ±%.4f| "
+                        "improvement: ±%.4f\n",
+                        epoch + batch_size,
+                        i + batch_size,
                         all_boards->num_boards,
-                        (float)(i + 1) / (float)all_boards->num_boards * 100.0f,
-                        epoch_loss / (float)batch_size,
-                        epoch_diff / (float)batch_size,
-                        epoch_static_diff / (float)batch_size
+                        (float)(i + batch_size) / (float)all_boards->num_boards * 100.0f,
+                        epoch_loss / (float)(log_steps * batch_size),
+                        epoch_diff / (float)(log_steps * batch_size),
+                        epoch_static_diff / (float)(log_steps * batch_size),
+                        (epoch_static_diff - epoch_diff) / (float)(log_steps * batch_size)
                     );
 
-                    if ((i + 1) / batch_size > 5) {
-                        fprintf(gnuplot, "%f %f\n", epoch_loss / (float)batch_size, epoch_diff / (float)batch_size);
+                    if ((i + batch_size) / batch_size > 5) {
+                        fprintf(
+                            gnuplot,
+                            "%f %f %f\n",
+                            epoch_loss / (float)(log_steps * batch_size),
+                            epoch_diff / (float)(log_steps * batch_size),
+                            (epoch_static_diff - epoch_diff) / (float)(log_steps * batch_size)
+                        );
                         fflush(gnuplot);
                     }
 
@@ -799,15 +835,6 @@ int main(int argc, const char** argv) {
 
             float avg_loss = epoch_loss / (float)all_boards->num_boards;
             printf("Epoch %d complete. Average loss: %.4f\n", epoch + 1, avg_loss);
-
-            // Simple improvement tracking
-            if (avg_loss < prev_loss) {
-                printf("Loss improved! (%.4f → %.4f)\n", prev_loss, avg_loss);
-                prev_loss = avg_loss;
-            }
-            else {
-                printf("Loss did not improve this epoch.\n");
-            }
 
             // Optionally decay learning rate inside ask_nn() or via global var
             lr *= lr_decay; // if you expose lr as global or static
