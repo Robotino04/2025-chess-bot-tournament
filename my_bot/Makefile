@@ -1,9 +1,9 @@
 CFLAGS= -std=c23 -O3 -L. -g
-CPPFLAGS= -O3 -L. -g
+CPPFLAGS= -O3 -L. -g -Wall -Wextra -ffast-math -march=native -fopenmp=libomp
 LDFLAGS= -lchess -lm -g
 
 CC= gcc
-CXX= g++
+CXX= clang++
 
 .PHONY: all clean measure measure_minimized tournament test
 
@@ -66,4 +66,4 @@ UHO_Lichess_4852_v1.epd: UHO_Lichess_4852_v1.epd.zip
 	touch $@
 
 clean:
-	rm -f example_bot example_bot_minimized example_bot_clean.c example_bot_minimized.c example_bot_clean_pcpp.c example_bot_clean_clang_tidy.c example_bot_clean_clang_format.c 
+	rm -f example_bot example_bot_minimized example_bot_clean.c example_bot_minimized.c example_bot_clean_pcpp.c example_bot_clean_clang_tidy.c example_bot_clean_clang_format.c train_nn

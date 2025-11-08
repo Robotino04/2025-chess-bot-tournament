@@ -29,6 +29,7 @@ in
 
       pkgs.llvmPackages.clang-tools
       pkgs.llvmPackages.clang
+      pkgs.llvmPackages.openmp
       pkgs.uncrustify
       (pkgs.python3.withPackages pythonPkgs)
 
@@ -42,4 +43,8 @@ in
     ];
 
     LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath packages;
+
+    shellHook = ''
+      unset NIX_ENFORCE_NO_NATIVE
+    '';
   }

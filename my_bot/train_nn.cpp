@@ -1,3 +1,4 @@
+#include <cstdlib>
 #define _POSIX_C_SOURCE 200809L
 
 #include "stddef.h"
@@ -15,14 +16,13 @@
 #include <fcntl.h>
 #include <errno.h>
 
-
 #define MAX_MOVES 256
 #define FETCH_MOVES(BOARD) \
     Move moves[MAX_MOVES]; \
     int num_moves = chess_get_legal_moves_inplace(BOARD, moves, MAX_MOVES)
 
 int board_to_fen(Board* board, char fen[], size_t max_fen_length) {
-    int fen_index = 0;
+    size_t fen_index = 0;
 
     int empty_accumulator = 0;
     for (int y = 7; y >= 0 && fen_index < max_fen_length; y--) {
@@ -138,6 +138,8 @@ static struct {
     FILE* child_stdout;
 } stockfish_state = {
     .is_started = false,
+    .child_stdin = nullptr,
+    .child_stdout = nullptr,
 };
 
 void start_stockfish(void) {
@@ -146,10 +148,14 @@ void start_stockfish(void) {
     }
 
     int child_stdin_fds[2];
-    (void)pipe(child_stdin_fds);
+    if (pipe(child_stdin_fds) < 0) {
+        perror("pipe stdin");
+    }
 
     int child_stdout_fds[2];
-    (void)pipe(child_stdout_fds);
+    if (pipe(child_stdout_fds)) {
+        perror("pipe stdout");
+    }
 
     printf("Starting stockfish\n");
 
@@ -170,7 +176,9 @@ void start_stockfish(void) {
         char buffer[250] = {0};
 
         while (strcmp(buffer, "uciok\n") != 0) {
-            (void)fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
+            if (fgets(buffer, sizeof(buffer), stockfish_state.child_stdout) == nullptr) {
+                perror("fgets");
+            }
             printf("%s", buffer);
         }
 
@@ -218,7 +226,9 @@ int ask_stockfish(Board* board) {
     fflush(stockfish_state.child_stdin);
 
     while (strcmp(buffer, "readyok\n") != 0) {
-        (void)fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
+        if (fgets(buffer, sizeof(buffer), stockfish_state.child_stdout) == nullptr) {
+            perror("fgets");
+        };
         printf("%s", buffer);
     }
 
@@ -227,7 +237,9 @@ int ask_stockfish(Board* board) {
     fflush(stockfish_state.child_stdin);
 
     while (strcmp(buffer, "readyok\n") != 0) {
-        (void)fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
+        if (fgets(buffer, sizeof(buffer), stockfish_state.child_stdout) == nullptr) {
+            perror("fgets");
+        }
         printf("%s", buffer);
     }
     printf("ready to go\n");
@@ -241,7 +253,9 @@ int ask_stockfish(Board* board) {
     bool has_eval = false;
     int eval = 0;
     while (!has_eval) {
-        (void)fgets(buffer, sizeof(buffer), stockfish_state.child_stdout);
+        if (fgets(buffer, sizeof(buffer), stockfish_state.child_stdout) == nullptr) {
+            perror("fgets");
+        }
 
 
         char* token = strtok(buffer, " \n");
@@ -292,37 +306,38 @@ char compressed_weights[1523] = {
 };
 
 #define LAYER_1_PARAMS (64 * 6 * 2)
-#define LAYER_2_PARAMS (100)
-#define LAYER_3_PARAMS (1)
-
-constexpr const int layer_sizes[] = {LAYER_1_PARAMS, LAYER_2_PARAMS, LAYER_3_PARAMS};
+#define LAYER_2_PARAMS (256)
+#define LAYER_3_PARAMS (256)
+#define LAYER_4_PARAMS (1)
 
 template <int N, int M>
 struct Matrix {
-    float data[N][M];
+    float data[N * M];
 
-    constexpr float at(int n, int m) const {
+    inline constexpr float at(int n, int m) const {
         assert(n >= 0 && n < N);
         assert(m >= 0 && m < M);
-        return data[n][m];
+        return data[n + m * N];
     }
-    constexpr float& at(int n, int m) {
+    inline constexpr float& at(int n, int m) {
         assert(n >= 0 && n < N);
         assert(m >= 0 && m < M);
-        return data[n][m];
+        return data[n + m * N];
     }
-    constexpr int getN() const {
+    inline constexpr int getN() const {
         return N;
     }
-    constexpr int getM() const {
+    inline constexpr int getM() const {
         return M;
     }
 };
 
 Matrix<LAYER_1_PARAMS, LAYER_2_PARAMS> weights1;
 Matrix<LAYER_2_PARAMS, LAYER_3_PARAMS> weights2;
+Matrix<LAYER_3_PARAMS, LAYER_4_PARAMS> weights3;
 Matrix<1, LAYER_2_PARAMS> biases1;
 Matrix<1, LAYER_3_PARAMS> biases2;
+Matrix<1, LAYER_4_PARAMS> biases3;
 
 
 /*
@@ -361,6 +376,7 @@ float ask_static_eval(PreprocessedBoard board) {
 
 template <int N, int M, int O>
 void matrix_multiply(const Matrix<N, M>& __restrict__ a, const Matrix<M, O>& __restrict__ b, Matrix<N, O>& __restrict__ output) {
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < O; y++) {
         for (int x = 0; x < N; x++) {
             output.at(x, y) = 0;
@@ -372,6 +388,7 @@ void matrix_multiply(const Matrix<N, M>& __restrict__ a, const Matrix<M, O>& __r
 }
 template <int N, int M>
 void matrix_flatten(const Matrix<N, M>& __restrict__ a, Matrix<1, M>& __restrict__ b) {
+#pragma omp parallel for
     for (int y = 0; y < M; y++) {
         b.at(0, y) = 0;
         for (int x = 0; x < N; x++) {
@@ -382,6 +399,7 @@ void matrix_flatten(const Matrix<N, M>& __restrict__ a, Matrix<1, M>& __restrict
 // a *= b (elementwise)
 template <int N, int M>
 void matrix_fold_el(Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restrict__ b) {
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) *= b.at(x, y);
@@ -390,6 +408,7 @@ void matrix_fold_el(Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restrict
 }
 template <int N, int M>
 void matrix_multiply_el(const Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restrict__ b, Matrix<N, M>& __restrict__ c) {
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             c.at(x, y) = a.at(x, y) * b.at(x, y);
@@ -398,15 +417,27 @@ void matrix_multiply_el(const Matrix<N, M>& __restrict__ a, const Matrix<N, M>& 
 }
 template <int N, int M>
 void matrix_multiply_scalar_inplace(Matrix<N, M>& __restrict__ a, const float b) {
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) *= b;
         }
     }
 }
+template <int N, int M>
+void matrix_sign_inplace(Matrix<N, M>& __restrict__ a) {
+#pragma omp parallel for collapse(2)
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            a.at(x, y) = a.at(x, y) > 0 ? 1.0f : -1.0f;
+        }
+    }
+}
+
 
 template <int N, int M>
 void matrix_transpose(const Matrix<N, M>& __restrict__ a, Matrix<M, N>& __restrict__ b) {
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             b.at(y, x) = a.at(x, y);
@@ -416,6 +447,7 @@ void matrix_transpose(const Matrix<N, M>& __restrict__ a, Matrix<M, N>& __restri
 
 template <int N, int M>
 void matrix_accumulate_thin(Matrix<N, M>& __restrict__ a, const Matrix<1, M>& __restrict__ b) {
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) += b.at(0, y);
@@ -425,6 +457,7 @@ void matrix_accumulate_thin(Matrix<N, M>& __restrict__ a, const Matrix<1, M>& __
 
 template <int N, int M>
 void matrix_accumulate(Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restrict__ b) {
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) += b.at(x, y);
@@ -433,6 +466,7 @@ void matrix_accumulate(Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restr
 }
 template <int N, int M>
 void matrix_reduce(Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restrict__ b) {
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) -= b.at(x, y);
@@ -442,6 +476,7 @@ void matrix_reduce(Matrix<N, M>& __restrict__ a, const Matrix<N, M>& __restrict_
 
 template <int N, int M>
 void matrix_activate_tanh(Matrix<N, M>& __restrict__ a) {
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             a.at(x, y) = tanhf(a.at(x, y));
@@ -451,6 +486,7 @@ void matrix_activate_tanh(Matrix<N, M>& __restrict__ a) {
 
 template <int N, int M>
 void matrix_deactivate_tanh(Matrix<N, M>& __restrict__ a) {
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             float tanh = tanhf(a.at(x, y));
@@ -458,10 +494,20 @@ void matrix_deactivate_tanh(Matrix<N, M>& __restrict__ a) {
         }
     }
 }
+template <int N, int M>
+void matrix_deactivate_identity(Matrix<N, M>& __restrict__ a) {
+#pragma omp parallel for collapse(2)
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            a.at(x, y) = 1;
+        }
+    }
+}
 
 template <int N, int M>
-float matrix_loss(const Matrix<N, M>& __restrict__ prediction, const Matrix<N, M>& __restrict__ target) {
+float matrix_l2_loss(const Matrix<N, M>& __restrict__ prediction, const Matrix<N, M>& __restrict__ target) {
     float loss = 0;
+#pragma omp parallel for collapse(2) reduction(+ : loss)
     for (int y = 0; y < M; y++) {
         for (int x = 0; x < N; x++) {
             float this_error = prediction.at(x, y) - target.at(x, y);
@@ -471,9 +517,23 @@ float matrix_loss(const Matrix<N, M>& __restrict__ prediction, const Matrix<N, M
 
     return loss / (float)(N * M);
 }
+template <int N, int M>
+float matrix_l1_loss(const Matrix<N, M>& __restrict__ prediction, const Matrix<N, M>& __restrict__ target) {
+    float loss = 0;
+#pragma omp parallel for collapse(2) reduction(+ : loss)
+    for (int y = 0; y < M; y++) {
+        for (int x = 0; x < N; x++) {
+            float this_error = prediction.at(x, y) - target.at(x, y);
+            loss += fabsf(this_error);
+        }
+    }
+
+    return loss / (float)(N * M);
+}
 
 template <int batch_size, int l1_params>
 void input_as_matrix(const PreprocessedBoard* __restrict__ boards, Matrix<batch_size, l1_params>& __restrict__ mat) {
+#pragma omp parallel for collapse(2)
     for (int b = 0; b < batch_size; b++) {
         for (int i = 0; i < l1_params; i++) {
             mat.at(b, i) = (boards[b].bitboards[i % 2][i / 2 % 6] >> (i / (6 * 2)) & 0b1);
@@ -483,81 +543,107 @@ void input_as_matrix(const PreprocessedBoard* __restrict__ boards, Matrix<batch_
     }
 }
 
-template <int batch_size, int l1_params, int l2_params, int l3_params>
+template <int batch_size, int l1_params, int l2_params, int l3_params, int l4_params>
 void pass_forwards(
     const Matrix<batch_size, l1_params>& inputs,
-    Matrix<batch_size, l3_params>& predictions,
+    Matrix<batch_size, l4_params>& predictions,
     Matrix<batch_size, l2_params>& unactive_out1,
     Matrix<batch_size, l3_params>& unactive_out2,
+    Matrix<batch_size, l4_params>& unactive_out3,
     Matrix<batch_size, l2_params>& active_out1,
-    Matrix<batch_size, l3_params>& active_out2
+    Matrix<batch_size, l3_params>& active_out2,
+    Matrix<batch_size, l4_params>& active_out3
 ) {
-    Matrix<batch_size, l2_params> output1;
+    static Matrix<batch_size, l2_params> output1;
     matrix_multiply(inputs, weights1, output1);
     matrix_accumulate_thin(output1, biases1);
     unactive_out1 = output1;
     matrix_activate_tanh(output1);
     active_out1 = output1;
 
-    Matrix<batch_size, l3_params> output2;
+    static Matrix<batch_size, l3_params> output2;
     matrix_multiply(output1, weights2, output2);
     matrix_accumulate_thin(output2, biases2);
     unactive_out2 = output2;
     matrix_activate_tanh(output2);
     active_out2 = output2;
 
-    predictions = output2;
+    static Matrix<batch_size, l4_params> output3;
+    matrix_multiply(output2, weights3, output3);
+    matrix_accumulate_thin(output3, biases3);
+    unactive_out3 = output3;
+    matrix_activate_tanh(output3);
+    active_out3 = output3;
+
+    predictions = output3;
 }
 
-template <int batch_size, int l1_params, int l2_params, int l3_params>
+template <int batch_size, int input_params, int output_params>
+void pass_backwards_once(
+    Matrix<input_params, output_params> const& __restrict__ weights,
+    Matrix<batch_size, output_params> const& __restrict__ error,
+    Matrix<batch_size, input_params> const& __restrict__ activated_input,
+    Matrix<batch_size, output_params> const& __restrict__ output_grad,
+    Matrix<1, output_params>& __restrict__ bias_grad,
+    Matrix<input_params, output_params>& __restrict__ weight_grad,
+    Matrix<batch_size, input_params>& __restrict__ input_grad
+) {
+    static Matrix<input_params, batch_size> activated_input_trans;
+    static Matrix<batch_size, output_params> bias_grad_wide;
+
+    matrix_multiply_el(error, output_grad, bias_grad_wide);
+
+    matrix_transpose(activated_input, activated_input_trans);
+    matrix_multiply(activated_input_trans, bias_grad_wide, weight_grad);
+    matrix_flatten(bias_grad_wide, bias_grad);
+
+    static Matrix<output_params, input_params> weights_trans;
+
+    matrix_transpose(weights, weights_trans);
+    matrix_multiply(bias_grad_wide, weights_trans, input_grad);
+}
+
+template <int batch_size, int l1_params, int l2_params, int l3_params, int l4_params>
 void pass_backwards(
-    float lr,
-    const Matrix<batch_size, l3_params>& __restrict__ predictions,
-    const Matrix<batch_size, l3_params>& __restrict__ targets,
+    const float lr,
+    const Matrix<batch_size, l4_params>& __restrict__ predictions,
+    const Matrix<batch_size, l4_params>& __restrict__ targets,
     const Matrix<batch_size, l1_params>& __restrict__ inputs,
     Matrix<batch_size, l2_params>& __restrict__ unactive_out1,
     Matrix<batch_size, l3_params>& __restrict__ unactive_out2,
+    Matrix<batch_size, l4_params>& __restrict__ unactive_out3,
     const Matrix<batch_size, l2_params>& __restrict__ active_out1,
     const Matrix<batch_size, l3_params>& __restrict__ active_out2
 ) {
-    Matrix<batch_size, l3_params> y_hat_minus_y;
+    static Matrix<batch_size, l4_params> y_hat_minus_y;
     y_hat_minus_y = predictions;
 
     // a -= b
     matrix_reduce(y_hat_minus_y, targets);
+    // matrix_sign_inplace(y_hat_minus_y);
+    matrix_multiply_scalar_inplace(y_hat_minus_y, 1.0f / (float)batch_size);
 
-    matrix_multiply_scalar_inplace(y_hat_minus_y, 1.0f / (float)(batch_size * l3_params));
+    static Matrix<1, l4_params> bias_grad3;
+    static Matrix<l3_params, l4_params> weight_grad3;
+    static Matrix<batch_size, l3_params> delta2_wide;
 
-    Matrix<l2_params, batch_size> active_out_trans1;
-    Matrix<batch_size, l3_params> bias_grad_wide2;
+    matrix_deactivate_tanh(unactive_out3);
+    pass_backwards_once(weights3, y_hat_minus_y, active_out2, unactive_out3, bias_grad3, weight_grad3, delta2_wide);
 
-    Matrix<1, l3_params> bias_grad2;
-    Matrix<l2_params, l3_params> weight_grad2;
+    static Matrix<1, l3_params> bias_grad2;
+    static Matrix<l2_params, l3_params> weight_grad2;
+    static Matrix<batch_size, l2_params> delta1_wide;
 
-    matrix_multiply_el(y_hat_minus_y, unactive_out2, bias_grad_wide2);
-    matrix_transpose(active_out1, active_out_trans1);
-    matrix_multiply(active_out_trans1, bias_grad_wide2, weight_grad2);
-    matrix_flatten(bias_grad_wide2, bias_grad2);
+    matrix_deactivate_tanh(unactive_out2);
+    pass_backwards_once(weights2, delta2_wide, active_out1, unactive_out2, bias_grad2, weight_grad2, delta1_wide);
+
+    static Matrix<1, l2_params> bias_grad1;
+    static Matrix<l1_params, l2_params> weight_grad1;
+    static Matrix<batch_size, l1_params> delta0_wide;
 
     matrix_deactivate_tanh(unactive_out1);
+    pass_backwards_once(weights1, delta1_wide, inputs, unactive_out1, bias_grad1, weight_grad1, delta0_wide);
 
-    Matrix<batch_size, l2_params> delta1_wide;
-    Matrix<l3_params, l2_params> weights2_trans;
-
-    matrix_transpose(weights2, weights2_trans);
-    matrix_multiply(bias_grad_wide2, weights2_trans, delta1_wide);
-
-
-    Matrix<l1_params, batch_size> active_out_trans0;
-    Matrix<batch_size, l2_params> bias_grad_wide1;
-
-    Matrix<1, l2_params> bias_grad1;
-    Matrix<l1_params, l2_params> weight_grad1;
-
-    matrix_multiply_el(delta1_wide, unactive_out1, bias_grad_wide1);
-    matrix_transpose(inputs, active_out_trans0);
-    matrix_multiply(active_out_trans0, bias_grad_wide1, weight_grad1);
-    matrix_flatten(bias_grad_wide1, bias_grad1);
     // update
     const float step_size = lr;
 
@@ -565,18 +651,22 @@ void pass_backwards(
     matrix_accumulate(weights1, weight_grad1);
     matrix_multiply_scalar_inplace(weight_grad2, -step_size);
     matrix_accumulate(weights2, weight_grad2);
+    matrix_multiply_scalar_inplace(weight_grad3, -step_size);
+    matrix_accumulate(weights3, weight_grad3);
 
     matrix_multiply_scalar_inplace(bias_grad1, -step_size);
     matrix_accumulate(biases1, bias_grad1);
     matrix_multiply_scalar_inplace(bias_grad2, -step_size);
     matrix_accumulate(biases2, bias_grad2);
+    matrix_multiply_scalar_inplace(bias_grad3, -step_size);
+    matrix_accumulate(biases3, bias_grad3);
 }
 
 
 PreprocessedBoard preprocess_fen(char* fen) {
     Board* board = chess_board_from_fen(fen);
 
-    PreprocessedBoard pp_board = {0};
+    PreprocessedBoard pp_board = {};
 
 
     for (int color = 0; color < 2; color++) {
@@ -602,6 +692,8 @@ size_t process_all_boards(char* string, PreprocessedBoard* boards, size_t board_
     do {
         PreprocessedBoard board = preprocess_fen(buffer);
 
+        buffer = strtok(NULL, "\n");
+        int depth = atoi(buffer);
 
         buffer = strtok(NULL, "\n");
         board.stockfish_eval = atoi(buffer);
@@ -610,17 +702,26 @@ size_t process_all_boards(char* string, PreprocessedBoard* boards, size_t board_
             printf("Processed first %lu boards\n", num_boards);
         }
 
-        boards[num_boards] = board;
+        if (depth >= 15) {
+            boards[num_boards++] = board;
+        }
 
-    } while ((buffer = strtok(NULL, "\n")) && ++num_boards < board_size);
+    } while ((buffer = strtok(NULL, "\n")) && num_boards < board_size);
 
     return num_boards;
 }
+
+extern "C" {
 
 typedef struct {
     size_t num_boards;
     PreprocessedBoard boards[];
 } FileFormat;
+}
+
+int compareBoard(void const* b1, void const* b2) {
+    return ((PreprocessedBoard*)b1)->stockfish_eval - ((PreprocessedBoard*)b2)->stockfish_eval;
+}
 
 int main(int argc, const char** argv) {
     if (argc >= 2 && !strcmp(argv[1], "preprocess")) {
@@ -642,7 +743,7 @@ int main(int argc, const char** argv) {
         memblock[sb.st_size + fen_buffer_space - 1] = '\0';
 
         // segfaults if we process all of them
-        size_t max_boards = 72'000'000;
+        size_t max_boards = 71'000'000;
 
         FileFormat* file = (FileFormat*)malloc(sizeof(FileFormat) + max_boards * sizeof(PreprocessedBoard));
 
@@ -704,6 +805,11 @@ int main(int argc, const char** argv) {
                 weights2.at(i, j) = ((float)rand() / (float)RAND_MAX) * 2 - 1;
             }
         }
+        for (int i = 0; i < weights3.getN(); i++) {
+            for (int j = 0; j < weights3.getM(); j++) {
+                weights3.at(i, j) = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+            }
+        }
         for (int i = 0; i < biases1.getN(); i++) {
             for (int j = 0; j < biases1.getM(); j++) {
                 biases1.at(i, j) = ((float)rand() / (float)RAND_MAX) * 2 - 1;
@@ -714,14 +820,17 @@ int main(int argc, const char** argv) {
                 biases2.at(i, j) = ((float)rand() / (float)RAND_MAX) * 2 - 1;
             }
         }
+        for (int i = 0; i < biases3.getN(); i++) {
+            for (int j = 0; j < biases3.getM(); j++) {
+                biases3.at(i, j) = ((float)rand() / (float)RAND_MAX) * 2 - 1;
+            }
+        }
 
-        int num_iterations = 1'000'000;
+        constexpr int num_epochs = 1000;
+        constexpr int batch_size = 256;
+        constexpr float lr_decay = 0.99f;
 
-        const int num_epochs = 1000;
-        const int batch_size = 128;
-        const float lr_decay = 0.99f;
-
-        const int log_steps = 200;
+        constexpr int log_steps = 32;
 
         FILE* gnuplot = popen(
             "feedgnuplot"
@@ -730,21 +839,29 @@ int main(int argc, const char** argv) {
             " --title 'Training Progress'"
             " --xlabel 'Epoch'"
             " --ylabel 'Loss'"
+            " --y2label 'Absolute Error'"
             " --y2 1"
-            " --y2 2",
+            " --y2 2"
+            " --legend 0 'Loss'"
+            " --legend 1 'Difference to Stockfish'"
+            " --legend 2 'Improvement from static eval'",
             "w"
         );
 
 
-        float lr = 0.0001;
-        float prev_loss = INFINITY;
+        float lr = 0.001;
 
         for (int epoch = 0; epoch < num_epochs; epoch++) {
             float epoch_loss = 0.0f;
             float epoch_diff = 0.0f;
             float epoch_static_diff = 0.0f;
 
-            if (epoch == 0) {
+            if (epoch == 0 && false) {
+                printf("Sorting\n");
+                qsort(all_boards->boards, all_boards->num_boards, sizeof(PreprocessedBoard), compareBoard);
+            }
+            else {
+
                 printf("Shuffling\n");
                 for (size_t i = all_boards->num_boards - 1; i > 0; i--) {
                     size_t j = (size_t)rand() % (i + 1);
@@ -757,49 +874,60 @@ int main(int argc, const char** argv) {
 
 
             printf("Training\n");
-            for (int i = 0; i + batch_size - 1 < all_boards->num_boards; i += batch_size) {
-                static Matrix<batch_size, 1> stockfish_eval;
+            for (size_t i = 0; i + batch_size - 1 < all_boards->num_boards; i += batch_size) {
+                static Matrix<batch_size, LAYER_4_PARAMS> stockfish_eval;
                 for (int j = 0; j < batch_size; j++) {
                     stockfish_eval.at(j, 0) = all_boards->boards[i + j].stockfish_eval
                                             * (all_boards->boards[i + j].is_white ? 1.0f : -1.0f);
                 }
-                matrix_multiply_scalar_inplace(stockfish_eval, 1.0f);
+                matrix_multiply_scalar_inplace(stockfish_eval, 1.0f / 2000.0f);
 
                 static Matrix<batch_size, LAYER_1_PARAMS> inputs;
-                input_as_matrix(all_boards->boards, inputs);
+                input_as_matrix(&all_boards->boards[i], inputs);
 
-                static Matrix<batch_size, LAYER_3_PARAMS> outputs;
+                static Matrix<batch_size, LAYER_4_PARAMS> outputs;
 
                 static Matrix<batch_size, LAYER_2_PARAMS> unactive_out1;
                 static Matrix<batch_size, LAYER_3_PARAMS> unactive_out2;
+                static Matrix<batch_size, LAYER_4_PARAMS> unactive_out3;
                 static Matrix<batch_size, LAYER_2_PARAMS> active_out1;
                 static Matrix<batch_size, LAYER_3_PARAMS> active_out2;
+                static Matrix<batch_size, LAYER_4_PARAMS> active_out3;
 
-                pass_forwards(inputs, outputs, unactive_out1, unactive_out2, active_out1, active_out2);
-                float sample_loss = matrix_loss(outputs, stockfish_eval);
+                pass_forwards(inputs, outputs, unactive_out1, unactive_out2, unactive_out3, active_out1, active_out2, active_out3);
+                epoch_loss += matrix_l2_loss(outputs, stockfish_eval);
 
-                pass_backwards<batch_size, LAYER_1_PARAMS>(lr, outputs, stockfish_eval, inputs, unactive_out1, unactive_out2, active_out1, active_out2);
+                pass_backwards(lr, outputs, stockfish_eval, inputs, unactive_out1, unactive_out2, unactive_out3, active_out1, active_out2);
 
-                float static_eval = ask_static_eval(all_boards->boards[i]);
-                float unscaled_stockfish_eval = all_boards->boards[i].stockfish_eval
-                                              * (all_boards->boards[i].is_white ? 1.0f : -1.0f);
 
-                epoch_loss += sample_loss;
-                float sample_diff = fabsf(unscaled_stockfish_eval - outputs.at(0, 0));
-                epoch_diff += sample_diff;
-                float static_diff = fabsf(unscaled_stockfish_eval - static_eval);
-                epoch_static_diff += static_diff;
+                for (int b = 0; b < batch_size; b++) {
+                    float static_eval = ask_static_eval(all_boards->boards[i + b]);
+                    float unscaled_stockfish_eval = all_boards->boards[i + b].stockfish_eval
+                                                  * (all_boards->boards[i + b].is_white ? 1.0f : -1.0f);
 
-                // Optional: print progress every batch
-                if ((i + batch_size) % (log_steps * batch_size) == 0) {
+                    epoch_diff += fabsf(unscaled_stockfish_eval - outputs.at(b, 0) * 2000.0f);
+                    epoch_static_diff += fabsf(unscaled_stockfish_eval - static_eval);
+                }
+
+                if (epoch == 0 && i > all_boards->num_boards / 2) {
+                    break;
+                }
+
+                if (epoch == 0 && i < batch_size * log_steps * 10) {
+                    epoch_loss = 0;
+                    epoch_diff = 0;
+                    epoch_static_diff = 0;
+                }
+
+                if ((i + batch_size) % (log_steps * batch_size) == 0 && (epoch != 0 || i > batch_size * log_steps * 10)) {
                     printf(
-                        "[Epoch %d] %d/%lu (%.02f%%) | Loss: %.4f | Delta: ±%.4f | Static: ±%.4f| "
-                        "improvement: ±%.4f\n",
-                        epoch + batch_size,
+                        "[Epoch %d] %zu/%lu (%.02f%%) | Loss: %.4f | Delta: ±%.4f | Static: ±%.4f| "
+                        "improvement: %.4f\n",
+                        epoch + 1,
                         i + batch_size,
                         all_boards->num_boards,
                         (float)(i + batch_size) / (float)all_boards->num_boards * 100.0f,
-                        epoch_loss / (float)(log_steps * batch_size),
+                        epoch_loss / (float)(log_steps),
                         epoch_diff / (float)(log_steps * batch_size),
                         epoch_static_diff / (float)(log_steps * batch_size),
                         (epoch_static_diff - epoch_diff) / (float)(log_steps * batch_size)
@@ -809,7 +937,7 @@ int main(int argc, const char** argv) {
                         fprintf(
                             gnuplot,
                             "%f %f %f\n",
-                            epoch_loss / (float)(log_steps * batch_size),
+                            epoch_loss / (float)(log_steps),
                             epoch_diff / (float)(log_steps * batch_size),
                             (epoch_static_diff - epoch_diff) / (float)(log_steps * batch_size)
                         );
@@ -836,11 +964,10 @@ int main(int argc, const char** argv) {
             float avg_loss = epoch_loss / (float)all_boards->num_boards;
             printf("Epoch %d complete. Average loss: %.4f\n", epoch + 1, avg_loss);
 
-            // Optionally decay learning rate inside ask_nn() or via global var
-            lr *= lr_decay; // if you expose lr as global or static
+            lr *= lr_decay;
         }
 
-        printf("Training finished. Final average loss: %.4f\n", prev_loss);
+        printf("Done training\n");
 
         getchar();
         pclose(gnuplot);
