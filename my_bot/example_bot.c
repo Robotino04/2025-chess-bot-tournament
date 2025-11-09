@@ -14,8 +14,8 @@
 
 // TODO: maybe use TT size as infinity
 #undef INFINITY
-#define INFINITY 9999999
-#define NEGATIVE_INFINITY 0b11111111011001110110100110000001
+#define INFINITY 10000000
+#define NEGATIVE_INFINITY 0b11111111011001110110100110000000
 
 #ifdef STATIC_ASSERTS
 static_assert(-INFINITY == NEGATIVE_INFINITY, "-INFINITY != NEGATIVE_INFINITY");
@@ -53,7 +53,6 @@ static_assert(TRANSPOSITION_SIZE == (1ul << 26));
 Board* board;
 int64_t time_left;
 jmp_buf timeout_jmp;
-GameState state;
 
 struct {
 #ifdef STATS
@@ -246,12 +245,31 @@ int alphaBeta(int depthleft, int alpha, int beta) {
 
 #define is_not_quiescence depthleft > 0
 
-    state = chess_get_game_state(board);
-    if (state == GAME_STALEMATE) {
-        return 0;
-    }
-    if (state == GAME_CHECKMATE) {
-        return NEGATIVE_INFINITY;
+
+#define INFINITY_OVER_TWO 5000000
+
+    // #define STATE_RETVALUE(X) (X == GAME_CHECKMATE) * NEGATIVE_INFINITY
+#define STATE_RETVALUE(X) X* INFINITY_OVER_TWO - INFINITY_OVER_TWO
+
+#ifdef STATIC_ASSERTS
+    static_assert(INFINITY / 2 == INFINITY_OVER_TWO);
+
+    static_assert(GAME_STALEMATE != 0);
+    static_assert(GAME_CHECKMATE != 0);
+
+    static_assert(GAME_STALEMATE == 1);
+    static_assert(GAME_CHECKMATE == -1);
+    static_assert(GAME_NORMAL == 0);
+
+    static_assert((STATE_RETVALUE(GAME_STALEMATE)) == 0);
+    static_assert((STATE_RETVALUE(GAME_CHECKMATE)) == -INFINITY);
+#endif
+
+// maybe slightly more expensive than storing it in a variable
+#define GAME_STATE chess_get_game_state(board)
+
+    if (GAME_STATE) {
+        return STATE_RETVALUE(GAME_STATE);
     }
 
     int alpha_orig = alpha;
