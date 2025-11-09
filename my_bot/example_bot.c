@@ -2,6 +2,7 @@
 #include "stdlib.h"
 #include "math.h"
 #include "setjmp.h"
+#include "string.h"
 
 #undef INFINITY
 #define INFINITY 9999999
@@ -59,6 +60,12 @@ static_assert(optimized_tt_size <= 1024 * 1024 * 1024, "Transposition table is t
 #endif
 
 
+int history_table[2][64][64];
+
+#define INDEX_HISTORY_TABLE(FROM, TO) \
+    history_table[chess_is_white_turn(board)][chess_get_index_from_bitboard(FROM)][chess_get_index_from_bitboard(TO)]
+
+
 #ifdef STATS
 uint64_t hashes_used;
 
@@ -85,6 +92,7 @@ uint64_t lmr_misses;
 // TODO
 // - [ ] test without custom libchess build
 // - [ ] expand and remove unneeded parens
+// - [ ] remove parens from sizeof() operators
 
 
 // notshit fen: r3k2r/p1p2ppp/2pp4/4p3/P7/2P1PbP1/RP5P/2Q2K1R w kq - 0 20
@@ -171,11 +179,13 @@ int static_eval() {
 int scoreMove(Move* move) {
     GEN_HASH
 
-#define SCORE_TIER_PV INFINITY
-#define SCORE_TIER_CAPTURE 1000
-#define SCORE_TIER_PROMOTION 900
-#define SCORE_TIER_DEFAULT 0
-
+    // clang-format off
+#define SCORE_TIER_PV          10000000
+#define SCORE_TIER_CAPTURE      1000000
+#define SCORE_TIER_PROMOTION      50000
+#define SCORE_TIER_KILLER         25000
+#define MAX_HISTORY               10000
+    // clang-format on
 
     if (move->from == 1UL << entry->bestMove_from && move->to == 1UL << entry->bestMove_to) {
         return SCORE_TIER_PV;
@@ -190,7 +200,7 @@ int scoreMove(Move* move) {
         return SCORE_TIER_PROMOTION + move->promotion;
     }
 
-    return SCORE_TIER_DEFAULT;
+    return INDEX_HISTORY_TABLE(move->from, move->to);
 }
 
 int compareMoves(const void* a, const void* b) {
@@ -325,6 +335,23 @@ int alphaBeta(int alpha, int beta, int depthleft) {
                 }
 #endif
 
+#define HISTORY_UPDATE_INDEX INDEX_HISTORY_TABLE(moves[i].from, moves[i].to)
+
+#define UPDATE_HISTORY(BONUS) HISTORY_UPDATE_INDEX -= HISTORY_UPDATE_INDEX * BONUS / MAX_HISTORY - BONUS
+
+                // TODO: consider moving bonus to before "if" so it matches the condition in "while"; test if that saves tokens
+                if (!moves[i].capture) {
+                    int bonus = 300 * depthleft - 250;
+                    UPDATE_HISTORY(bonus);
+
+                    bonus /= -8;
+
+                    while (--i >= 0) {
+                        if (!moves[i].capture) {
+                            UPDATE_HISTORY(bonus);
+                        }
+                    }
+                }
                 break;
             }
         }
@@ -430,9 +457,12 @@ int main(void) {
         FETCH_MOVES
         qsort(moves, len_moves, sizeof(Move), compareMoves);
 
+        memset(history_table, 0, sizeof(history_table));
+
         // static to prevent longjmp clobbering
         static Move prevBestMove, bestMove;
         prevBestMove = bestMove = *moves;
+
         int prevBestValue = 0;
 
 #ifdef STATS
@@ -463,7 +493,9 @@ int main(void) {
                 goto search_canceled;
 
             int bestValue = -INFINITY;
+
             qsort(moves, len_moves, sizeof(Move), compareMoves);
+
             for (int i = 0; i < len_moves; i++) {
                 chess_make_move(board, moves[i]);
                 int alphaOffset = 25;
