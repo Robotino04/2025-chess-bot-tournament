@@ -205,22 +205,10 @@ int scoreMove(Move* move) {
 
 int compareMoves(const void* a, const void* b) {
 #ifdef STATIC_ASSERTS
-    int sa = scoreMove((Move*)a);
-    int sb = scoreMove((Move*)b);
+    return scoreMove((Move*)b) - scoreMove((Move*)a);
 #else
-    int sa = scoreMove(a);
-    int sb = scoreMove(b);
+    return scoreMove(b) - scoreMove(a);
 #endif
-    // TODO: replace with sb - sa
-    // (I think, maybe reversed)
-
-    if (sa < sb) {
-        return 1;
-    }
-    if (sa > sb) {
-        return -1;
-    }
-    return 0;
 }
 
 #define max_best_value_and(X) MAX(bestValue, X)
