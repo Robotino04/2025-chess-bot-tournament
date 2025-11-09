@@ -325,9 +325,13 @@ int alphaBeta(int alpha, int beta, int depthleft) {
 
 #define HISTORY_UPDATE_INDEX INDEX_HISTORY_TABLE(moves[i].from, moves[i].to)
 
+                // this version is slightly better for some reason
 #define UPDATE_HISTORY(BONUS) HISTORY_UPDATE_INDEX -= HISTORY_UPDATE_INDEX * BONUS / MAX_HISTORY - BONUS
+                // #define UPDATE_HISTORY(BONUS) HISTORY_UPDATE_INDEX += BONUS - HISTORY_UPDATE_INDEX * BONUS / MAX_HISTORY
 
-                // TODO: consider moving bonus to before "if" so it matches the condition in "while"; test if that saves tokens
+                // TODO: consider moving bonus to before "if" so it matches the condition in "while"; test if
+                // that saves tokens.
+                // only saves tokens if the loop "if" doesn't get the braces removed
                 if (!moves[i].capture) {
                     int bonus = 300 * depthleft - 250;
                     UPDATE_HISTORY(bonus);
@@ -346,7 +350,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
     }
 
 
-    // TODO: maybe redundant, but lets leave it here for now
+    // cannot be simplified because even though the depth is good, the score might not cause a cutoff
     if (is_not_quiescence && (entry->depth < depthleft || entry->hash != hash)) {
 #ifdef STATS
         entry->stats.num_nodes = (searched_nodes + cached_nodes) - (old_searched_nodes + old_cached_nodes);
@@ -431,9 +435,6 @@ void print_stats(int depth, int bestValue, uint64_t prev_searched_nodes) {
 // TODO: maybe remove void
 int main(void) {
     // TODO: make recursive
-#ifdef STATS
-    searched_nodes = 1;
-#endif
 
     while (true) {
         board = chess_get_board();
@@ -455,6 +456,7 @@ int main(void) {
 
 #ifdef STATS
         uint64_t prev_searched_nodes = 0;
+        searched_nodes = 1;
 #endif
 
         for (int depth = 1; depth < 100; depth++) {
