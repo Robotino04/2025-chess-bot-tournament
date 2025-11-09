@@ -4,13 +4,6 @@
 #include "setjmp.h"
 #include "string.h"
 
-// TODO: maybe use TT size as infinity
-#undef INFINITY
-#define INFINITY 9999999
-
-#define MIN(A, B) fminf(A, B)
-#define MAX(A, B) fmaxf(A, B)
-
 #ifndef MINIMIZE
     #define STATS
     #include "stdio.h"
@@ -19,17 +12,37 @@
 #endif
 
 
-// TODO: write as single number
-#define TRANSPOSITION_SIZE (1ul << 26)
+// TODO: maybe use TT size as infinity
+#undef INFINITY
+#define INFINITY 9999999
+#define NEGATIVE_INFINITY 0b11111111011001110110100110000001
+
+#ifdef STATIC_ASSERTS
+static_assert(-INFINITY == NEGATIVE_INFINITY, "-INFINITY != NEGATIVE_INFINITY");
+static_assert(((long long)(int)INFINITY) == (long)INFINITY, "INFINITY is too large");
+#endif
+
+#define NEGATIVE_ONE 0b11111111111111111111111111111111
+
+#ifdef STATIC_ASSERTS
+static_assert(-1 == NEGATIVE_ONE, "-1 != NEGATIVE_ONE");
+#endif
+
+#define MIN(A, B) fminf(A, B)
+#define MAX(A, B) fmaxf(A, B)
+
+
+#define TRANSPOSITION_SIZE 0b100000000000000000000000000ul
+
+#ifdef STATIC_ASSERTS
+static_assert(TRANSPOSITION_SIZE % 2 == 0, "TRANSPOSITION_SIZE isn't a power of two");
+static_assert(TRANSPOSITION_SIZE == (1ul << 26));
+#endif
 
 // define it here so minimize.py removes it before applying macros
 #undef stdc_count_ones_ul
 #define stdc_count_ones_ul(x) __builtin_popcountl(x)
 
-#ifdef STATIC_ASSERTS
-static_assert(((long long)(int)INFINITY) == (long)INFINITY, "INFINITY is too large");
-static_assert(TRANSPOSITION_SIZE % 2 == 0, "TRANSPOSITION_SIZE isn't a power of two");
-#endif
 
 #define TYPE_UNUSED 0
 #define TYPE_EXACT 1
@@ -163,7 +176,7 @@ int static_eval_me(PlayerColor color) {
 /*
 int static_eval() {
     if (state == GAME_CHECKMATE) {
-        return -INFINITY;
+        return NEGATIVE_INFINITY;
     }
 
     if (state == GAME_STALEMATE) {
@@ -238,12 +251,12 @@ int alphaBeta(int alpha, int beta, int depthleft) {
         return 0;
     }
     if (state == GAME_CHECKMATE) {
-        return -INFINITY;
+        return NEGATIVE_INFINITY;
     }
 
     int alpha_orig = alpha;
 
-    int bestValue = -INFINITY;
+    int bestValue = NEGATIVE_INFINITY;
     int bestMoveIndex = 0;
 
     GEN_HASH
@@ -259,7 +272,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
         }
     }
     else {
-        bestValue = (chess_is_white_turn(board) ? 1.0f : -1.0f) * (static_eval_me(WHITE) - static_eval_me(BLACK));
+        bestValue = (chess_is_white_turn(board) ? 1 : NEGATIVE_ONE) * (static_eval_me(WHITE) - static_eval_me(BLACK));
         alpha = max_best_value_and(alpha);
         if (alpha >= beta) {
             return bestValue;
@@ -490,7 +503,7 @@ int main(void) {
                 goto search_canceled;
             }
 
-            int bestValue = -INFINITY;
+            int bestValue = NEGATIVE_INFINITY;
 
             SORT_MOVES
 
