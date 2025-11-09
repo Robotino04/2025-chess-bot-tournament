@@ -1,4 +1,3 @@
-#include <cstdlib>
 #define _POSIX_C_SOURCE 200809L
 
 #include "stddef.h"
@@ -306,9 +305,10 @@ char compressed_weights[1523] = {
 };
 
 #define LAYER_1_PARAMS (64 * 6 * 2)
-#define LAYER_2_PARAMS (256)
-#define LAYER_3_PARAMS (256)
-#define LAYER_4_PARAMS (1)
+#define LAYER_2_PARAMS (512)
+#define LAYER_3_PARAMS (512)
+#define LAYER_4_PARAMS (256)
+#define LAYER_5_PARAMS (1)
 
 template <int N, int M>
 struct Matrix {
@@ -335,9 +335,11 @@ struct Matrix {
 Matrix<LAYER_1_PARAMS, LAYER_2_PARAMS> weights1;
 Matrix<LAYER_2_PARAMS, LAYER_3_PARAMS> weights2;
 Matrix<LAYER_3_PARAMS, LAYER_4_PARAMS> weights3;
+Matrix<LAYER_4_PARAMS, LAYER_5_PARAMS> weights4;
 Matrix<1, LAYER_2_PARAMS> biases1;
 Matrix<1, LAYER_3_PARAMS> biases2;
 Matrix<1, LAYER_4_PARAMS> biases3;
+Matrix<1, LAYER_5_PARAMS> biases4;
 
 
 /*
@@ -543,16 +545,18 @@ void input_as_matrix(const PreprocessedBoard* __restrict__ boards, Matrix<batch_
     }
 }
 
-template <int batch_size, int l1_params, int l2_params, int l3_params, int l4_params>
+template <int batch_size, int l1_params, int l2_params, int l3_params, int l4_params, int l5_params>
 void pass_forwards(
     const Matrix<batch_size, l1_params>& inputs,
-    Matrix<batch_size, l4_params>& predictions,
+    Matrix<batch_size, l5_params>& predictions,
     Matrix<batch_size, l2_params>& unactive_out1,
     Matrix<batch_size, l3_params>& unactive_out2,
     Matrix<batch_size, l4_params>& unactive_out3,
+    Matrix<batch_size, l5_params>& unactive_out4,
     Matrix<batch_size, l2_params>& active_out1,
     Matrix<batch_size, l3_params>& active_out2,
-    Matrix<batch_size, l4_params>& active_out3
+    Matrix<batch_size, l4_params>& active_out3,
+    Matrix<batch_size, l5_params>& active_out4
 ) {
     static Matrix<batch_size, l2_params> output1;
     matrix_multiply(inputs, weights1, output1);
@@ -575,7 +579,14 @@ void pass_forwards(
     matrix_activate_tanh(output3);
     active_out3 = output3;
 
-    predictions = output3;
+    static Matrix<batch_size, l5_params> output4;
+    matrix_multiply(output3, weights4, output4);
+    matrix_accumulate_thin(output4, biases4);
+    unactive_out4 = output4;
+    matrix_activate_tanh(output4);
+    active_out4 = output4;
+
+    predictions = output4;
 }
 
 template <int batch_size, int input_params, int output_params>
@@ -603,19 +614,21 @@ void pass_backwards_once(
     matrix_multiply(bias_grad_wide, weights_trans, input_grad);
 }
 
-template <int batch_size, int l1_params, int l2_params, int l3_params, int l4_params>
+template <int batch_size, int l1_params, int l2_params, int l3_params, int l4_params, int l5_params>
 void pass_backwards(
     const float lr,
-    const Matrix<batch_size, l4_params>& __restrict__ predictions,
-    const Matrix<batch_size, l4_params>& __restrict__ targets,
+    const Matrix<batch_size, l5_params>& __restrict__ predictions,
+    const Matrix<batch_size, l5_params>& __restrict__ targets,
     const Matrix<batch_size, l1_params>& __restrict__ inputs,
     Matrix<batch_size, l2_params>& __restrict__ unactive_out1,
     Matrix<batch_size, l3_params>& __restrict__ unactive_out2,
     Matrix<batch_size, l4_params>& __restrict__ unactive_out3,
+    Matrix<batch_size, l5_params>& __restrict__ unactive_out4,
     const Matrix<batch_size, l2_params>& __restrict__ active_out1,
-    const Matrix<batch_size, l3_params>& __restrict__ active_out2
+    const Matrix<batch_size, l3_params>& __restrict__ active_out2,
+    const Matrix<batch_size, l4_params>& __restrict__ active_out3
 ) {
-    static Matrix<batch_size, l4_params> y_hat_minus_y;
+    static Matrix<batch_size, l5_params> y_hat_minus_y;
     y_hat_minus_y = predictions;
 
     // a -= b
@@ -623,12 +636,19 @@ void pass_backwards(
     // matrix_sign_inplace(y_hat_minus_y);
     matrix_multiply_scalar_inplace(y_hat_minus_y, 1.0f / (float)batch_size);
 
+    static Matrix<1, l5_params> bias_grad4;
+    static Matrix<l4_params, l5_params> weight_grad4;
+    static Matrix<batch_size, l4_params> delta3_wide;
+
+    matrix_deactivate_tanh(unactive_out4);
+    pass_backwards_once(weights4, y_hat_minus_y, active_out3, unactive_out4, bias_grad4, weight_grad4, delta3_wide);
+
     static Matrix<1, l4_params> bias_grad3;
     static Matrix<l3_params, l4_params> weight_grad3;
     static Matrix<batch_size, l3_params> delta2_wide;
 
     matrix_deactivate_tanh(unactive_out3);
-    pass_backwards_once(weights3, y_hat_minus_y, active_out2, unactive_out3, bias_grad3, weight_grad3, delta2_wide);
+    pass_backwards_once(weights3, delta3_wide, active_out2, unactive_out3, bias_grad3, weight_grad3, delta2_wide);
 
     static Matrix<1, l3_params> bias_grad2;
     static Matrix<l2_params, l3_params> weight_grad2;
@@ -653,6 +673,8 @@ void pass_backwards(
     matrix_accumulate(weights2, weight_grad2);
     matrix_multiply_scalar_inplace(weight_grad3, -step_size);
     matrix_accumulate(weights3, weight_grad3);
+    matrix_multiply_scalar_inplace(weight_grad4, -step_size);
+    matrix_accumulate(weights4, weight_grad4);
 
     matrix_multiply_scalar_inplace(bias_grad1, -step_size);
     matrix_accumulate(biases1, bias_grad1);
@@ -660,6 +682,8 @@ void pass_backwards(
     matrix_accumulate(biases2, bias_grad2);
     matrix_multiply_scalar_inplace(bias_grad3, -step_size);
     matrix_accumulate(biases3, bias_grad3);
+    matrix_multiply_scalar_inplace(bias_grad4, -step_size);
+    matrix_accumulate(biases4, bias_grad4);
 }
 
 
@@ -828,7 +852,7 @@ int main(int argc, const char** argv) {
 
         constexpr int num_epochs = 1000;
         constexpr int batch_size = 256;
-        constexpr float lr_decay = 0.99f;
+        constexpr float lr_decay = 0.95f;
 
         constexpr int log_steps = 32;
 
@@ -875,7 +899,7 @@ int main(int argc, const char** argv) {
 
             printf("Training\n");
             for (size_t i = 0; i + batch_size - 1 < all_boards->num_boards; i += batch_size) {
-                static Matrix<batch_size, LAYER_4_PARAMS> stockfish_eval;
+                static Matrix<batch_size, LAYER_5_PARAMS> stockfish_eval;
                 for (int j = 0; j < batch_size; j++) {
                     stockfish_eval.at(j, 0) = all_boards->boards[i + j].stockfish_eval
                                             * (all_boards->boards[i + j].is_white ? 1.0f : -1.0f);
@@ -885,19 +909,21 @@ int main(int argc, const char** argv) {
                 static Matrix<batch_size, LAYER_1_PARAMS> inputs;
                 input_as_matrix(&all_boards->boards[i], inputs);
 
-                static Matrix<batch_size, LAYER_4_PARAMS> outputs;
+                static Matrix<batch_size, LAYER_5_PARAMS> outputs;
 
                 static Matrix<batch_size, LAYER_2_PARAMS> unactive_out1;
                 static Matrix<batch_size, LAYER_3_PARAMS> unactive_out2;
                 static Matrix<batch_size, LAYER_4_PARAMS> unactive_out3;
+                static Matrix<batch_size, LAYER_5_PARAMS> unactive_out4;
                 static Matrix<batch_size, LAYER_2_PARAMS> active_out1;
                 static Matrix<batch_size, LAYER_3_PARAMS> active_out2;
                 static Matrix<batch_size, LAYER_4_PARAMS> active_out3;
+                static Matrix<batch_size, LAYER_5_PARAMS> active_out4;
 
-                pass_forwards(inputs, outputs, unactive_out1, unactive_out2, unactive_out3, active_out1, active_out2, active_out3);
+                pass_forwards(inputs, outputs, unactive_out1, unactive_out2, unactive_out3, unactive_out4, active_out1, active_out2, active_out3, active_out4);
                 epoch_loss += matrix_l2_loss(outputs, stockfish_eval);
 
-                pass_backwards(lr, outputs, stockfish_eval, inputs, unactive_out1, unactive_out2, unactive_out3, active_out1, active_out2);
+                pass_backwards(lr, outputs, stockfish_eval, inputs, unactive_out1, unactive_out2, unactive_out3, unactive_out4, active_out1, active_out2, active_out3);
 
 
                 for (int b = 0; b < batch_size; b++) {
