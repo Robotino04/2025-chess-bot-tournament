@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 tail -F /tmp/match.log | awk '
-  /^Score of / {inblock=1; block=$0 ORS; next}
+  /^(Score of )|(Rank Name )/ {inblock=1; block=$0 ORS; next}
   inblock {
     if (/^SPRT: llr /) {
       block = block $0 ORS      # append the last line once

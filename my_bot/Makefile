@@ -44,7 +44,7 @@ tournament: example_bot example_bot_minimized tournament.sh
 
 COMMON_TEST_ARGS := \
 	-engine "name=NB Latest" cmd=./example_bot \
-	-engine "name=NB v15_late_move_reduction " cmd=./backups/v15_late_move_reduction \
+	-engine "name=NB v16_history_heuristic " cmd=./backups/v16_history_heuristic \
 	-openings file="UHO_Lichess_4852_v1.epd" format=epd order=random policy=default \
 	-games 999999 -concurrency 16 \
 	-recover \
