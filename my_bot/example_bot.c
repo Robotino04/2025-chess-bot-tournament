@@ -111,14 +111,13 @@ uint64_t lmr_misses;
 // midgame fail: r5k1/p6p/6p1/2Qb1r2/P6K/8/RP5P/6R1 w - - 0 33
 // prevent promotion: 8/3K4/4P3/8/8/8/6k1/7q w - - 0 1
 
-// TODO: turn into macro
-int material_of(PlayerColor color) {
-    return +stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100
-         + stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300
-         + stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP)) * 320
-         + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500
-         + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900;
-}
+#define MATERIAL_OF_COLOR                                                    \
+    +stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100        \
+        + stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300 \
+        + stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP)) * 320 \
+        + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500   \
+        + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900
+
 #define GET_ENDGAME_WEIGHT(COLOR)                                                          \
     chess_get_bitboard(board, COLOR, KNIGHT) | chess_get_bitboard(board, COLOR, BISHOP)    \
         | chess_get_bitboard(board, COLOR, ROOK) | chess_get_bitboard(board, COLOR, QUEEN) \
@@ -132,7 +131,7 @@ int static_eval_me(PlayerColor color) {
     static_assert((BLACK ^ 1) == WHITE, "BLACK isn't inverse of WHITE");
 #endif
 
-    int material = material_of(color);
+    int material = MATERIAL_OF_COLOR;
 
     float endgame_weight = 0;
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
@@ -147,7 +146,7 @@ int static_eval_me(PlayerColor color) {
 
 
     // color is inverted already
-    if (material > material_of(color) + 200) {
+    if (material > MATERIAL_OF_COLOR + 200) {
 #define king2_file king2 % 8
 #define king2_rank king2 / 8
 
