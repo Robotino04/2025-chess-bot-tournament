@@ -18,7 +18,7 @@
 
 
 // TODO: write as single number
-#define TRANSPOSITION_SIZE (1ul << 25)
+#define TRANSPOSITION_SIZE (1ul << 26)
 
 // define it here so minimize.py removes it before applying macros
 #undef stdc_count_ones_ul
@@ -26,7 +26,7 @@
 
 #ifdef STATIC_ASSERTS
 static_assert(((long long)(int)INFINITY) == (long)INFINITY, "INFINITY is too large");
-static_assert((TRANSPOSITION_SIZE & (TRANSPOSITION_SIZE - 1)) == 0, "TRANSPOSITION_SIZE isn't a power of two");
+static_assert(TRANSPOSITION_SIZE % 2 == 0, "TRANSPOSITION_SIZE isn't a power of two");
 #endif
 
 #define TYPE_UNUSED 0
@@ -47,17 +47,15 @@ struct {
     } stats;
 #endif
     uint64_t hash;
-    int eval, type, depth;
-    Move bestMove;
+    int eval;
+    uint8_t type, depth;
+    uint8_t bestMove_from, bestMove_to;
 } transposition_table[TRANSPOSITION_SIZE];
 #ifdef STATIC_ASSERTS
-/*
-TODO:
-static_assert(
-    sizeof(transposition_table) - sizeof(transposition_table[0].stats) * TRANSPOSITION_SIZE <= 1024 * 1024 *
-1024, "Transposition table is too big"
-);
-*/
+constexpr size_t tt_size = sizeof(transposition_table);
+constexpr size_t stat_size = sizeof(transposition_table[0].stats) * TRANSPOSITION_SIZE;
+constexpr size_t optimized_tt_size = tt_size - stat_size;
+static_assert(optimized_tt_size <= 1024 * 1024 * 1024, "Transposition table is too big");
 #endif
 
 
@@ -104,6 +102,7 @@ uint64_t lmr_misses;
 // midgame fail: r5k1/p6p/6p1/2Qb1r2/P6K/8/RP5P/6R1 w - - 0 33
 // prevent promotion: 8/3K4/4P3/8/8/8/6k1/7q w - - 0 1
 
+// TODO: turn into macro
 int material_of(PlayerColor color) {
     return +stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100
          + stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300
@@ -178,7 +177,7 @@ int scoreMove(Move* move) {
 #define SCORE_TIER_DEFAULT 0
 
 
-    if (move->from == entry->bestMove.from && move->to == entry->bestMove.to) {
+    if (move->from == 1UL << entry->bestMove_from && move->to == 1UL << entry->bestMove_to) {
         return SCORE_TIER_PV;
     }
 
@@ -351,7 +350,8 @@ int alphaBeta(int alpha, int beta, int depthleft) {
         entry->type = bestValue <= alpha_orig ? TYPE_UPPER_BOUND
                     : bestValue >= beta       ? TYPE_LOWER_BOUND
                                               : TYPE_EXACT;
-        entry->bestMove = moves[bestMoveIndex];
+        entry->bestMove_from = chess_get_index_from_bitboard(moves[bestMoveIndex].from);
+        entry->bestMove_to = chess_get_index_from_bitboard(moves[bestMoveIndex].to);
     }
 
     return bestValue;
@@ -435,6 +435,7 @@ int main(void) {
         prevBestMove = bestMove = *moves;
         int prevBestValue = 0;
 
+        // TODO: move into stats
         uint64_t prev_searched_nodes = 0;
 
         for (int depth = 1; depth < 100; depth++) {
