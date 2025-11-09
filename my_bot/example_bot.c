@@ -4,6 +4,7 @@
 #include "setjmp.h"
 #include "string.h"
 
+// TODO: maybe use TT size as infinity
 #undef INFINITY
 #define INFINITY 9999999
 
@@ -60,10 +61,11 @@ static_assert(optimized_tt_size <= 1024 * 1024 * 1024, "Transposition table is t
 #endif
 
 
-int history_table[2][64][64];
+// [2][64][64]
+int history_table[8192];
 
 #define INDEX_HISTORY_TABLE(FROM, TO) \
-    history_table[chess_is_white_turn(board)][chess_get_index_from_bitboard(FROM)][chess_get_index_from_bitboard(TO)]
+    history_table[chess_is_white_turn(board) * 4096 + chess_get_index_from_bitboard(FROM) * 64 + chess_get_index_from_bitboard(TO)]
 
 
 #ifdef STATS
@@ -111,12 +113,12 @@ uint64_t lmr_misses;
 // midgame fail: r5k1/p6p/6p1/2Qb1r2/P6K/8/RP5P/6R1 w - - 0 33
 // prevent promotion: 8/3K4/4P3/8/8/8/6k1/7q w - - 0 1
 
-#define MATERIAL_OF_COLOR                                                    \
-    +stdc_count_ones_ul(chess_get_bitboard(board, color, PAWN)) * 100        \
-        + stdc_count_ones_ul(chess_get_bitboard(board, color, KNIGHT)) * 300 \
-        + stdc_count_ones_ul(chess_get_bitboard(board, color, BISHOP)) * 320 \
-        + stdc_count_ones_ul(chess_get_bitboard(board, color, ROOK)) * 500   \
-        + stdc_count_ones_ul(chess_get_bitboard(board, color, QUEEN)) * 900
+#define MATERIAL_OF(COLOR)                                                   \
+    +stdc_count_ones_ul(chess_get_bitboard(board, COLOR, PAWN)) * 100        \
+        + stdc_count_ones_ul(chess_get_bitboard(board, COLOR, KNIGHT)) * 300 \
+        + stdc_count_ones_ul(chess_get_bitboard(board, COLOR, BISHOP)) * 320 \
+        + stdc_count_ones_ul(chess_get_bitboard(board, COLOR, ROOK)) * 500   \
+        + stdc_count_ones_ul(chess_get_bitboard(board, COLOR, QUEEN)) * 900
 
 #define GET_ENDGAME_WEIGHT(COLOR)                                                          \
     chess_get_bitboard(board, COLOR, KNIGHT) | chess_get_bitboard(board, COLOR, BISHOP)    \
@@ -131,7 +133,7 @@ int static_eval_me(PlayerColor color) {
     static_assert((BLACK ^ 1) == WHITE, "BLACK isn't inverse of WHITE");
 #endif
 
-    int material = MATERIAL_OF_COLOR;
+    int material = MATERIAL_OF(color);
 
     float endgame_weight = 0;
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
@@ -146,7 +148,7 @@ int static_eval_me(PlayerColor color) {
 
 
     // color is inverted already
-    if (material > MATERIAL_OF_COLOR + 200) {
+    if (material > 200 /* there's a plus in the macro */ MATERIAL_OF(color)) {
 #define king2_file king2 % 8
 #define king2_rank king2 / 8
 
@@ -158,6 +160,7 @@ int static_eval_me(PlayerColor color) {
     return material;
 }
 
+/*
 int static_eval() {
     if (state == GAME_CHECKMATE) {
         return -INFINITY;
@@ -169,6 +172,7 @@ int static_eval() {
 
     return (chess_is_white_turn(board) ? 1.0f : -1.0f) * (static_eval_me(WHITE) - static_eval_me(BLACK));
 }
+*/
 
 
 #define GEN_HASH /* parse fix */              \
@@ -233,6 +237,9 @@ int alphaBeta(int alpha, int beta, int depthleft) {
     if (state == GAME_STALEMATE) {
         return 0;
     }
+    if (state == GAME_CHECKMATE) {
+        return -INFINITY;
+    }
 
     int alpha_orig = alpha;
 
@@ -252,9 +259,9 @@ int alphaBeta(int alpha, int beta, int depthleft) {
         }
     }
     else {
-        bestValue = static_eval();
+        bestValue = (chess_is_white_turn(board) ? 1.0f : -1.0f) * (static_eval_me(WHITE) - static_eval_me(BLACK));
         alpha = max_best_value_and(alpha);
-        if (bestValue >= beta) {
+        if (alpha >= beta) {
             return bestValue;
         }
     }
@@ -313,7 +320,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
 
             bestValue = max_best_value_and(score);
             alpha = max_best_value_and(alpha);
-            if (score >= beta) {
+            if (alpha >= beta) {
 #ifdef STATS
                 if (i == 0) {
                     first_move_cuts++;
@@ -479,8 +486,9 @@ int main(void) {
             lmr_hits = 0;
             lmr_misses = 0;
 #endif
-            if (setjmp(timeout_jmp))
+            if (setjmp(timeout_jmp)) {
                 goto search_canceled;
+            }
 
             int bestValue = -INFINITY;
 
