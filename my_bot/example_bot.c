@@ -430,7 +430,9 @@ int main(void) {
         FETCH_MOVES
         qsort(moves, len_moves, sizeof(Move), compareMoves);
 
-        Move prevBestMove = *moves, bestMove = *moves;
+        // static to prevent longjmp clobbering
+        static Move prevBestMove, bestMove;
+        prevBestMove = bestMove = *moves;
         int prevBestValue = 0;
 
         uint64_t prev_searched_nodes = 0;
@@ -511,6 +513,7 @@ int main(void) {
         }
     search_canceled:
 
+        // TODO: use partial search results
         chess_push(prevBestMove);
 
         chess_free_board(board);

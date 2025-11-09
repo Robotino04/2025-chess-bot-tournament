@@ -1,4 +1,4 @@
-CFLAGS= -std=c23 -O3 -L. -g
+CFLAGS= -std=c23 -O3 -L. -g -Wall -Wextra
 CPPFLAGS= -O3 -L. -g -Wall -Wextra -ffast-math -march=native -fopenmp=libomp
 LDFLAGS= -lchess -lm -g
 
@@ -46,7 +46,7 @@ COMMON_TEST_ARGS := \
 	-engine "name=NB Latest" cmd=./example_bot \
 	-engine "name=NB v15_late_move_reduction " cmd=./backups/v15_late_move_reduction \
 	-openings file="UHO_Lichess_4852_v1.epd" format=epd order=random policy=default \
-	-games 999999 -concurrency 18 \
+	-games 999999 -concurrency 16 \
 	-recover \
 	-each tc=1 timemargin=200 proto=uci \
 	-ratinginterval 10
