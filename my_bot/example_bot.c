@@ -53,8 +53,8 @@ struct {
     uint8_t bestMove_from, bestMove_to;
 } transposition_table[TRANSPOSITION_SIZE];
 #ifdef STATIC_ASSERTS
-constexpr size_t tt_size = sizeof(transposition_table);
-constexpr size_t stat_size = sizeof(transposition_table[0].stats) * TRANSPOSITION_SIZE;
+constexpr size_t tt_size = sizeof transposition_table;
+constexpr size_t stat_size = sizeof transposition_table[0].stats * TRANSPOSITION_SIZE;
 constexpr size_t optimized_tt_size = tt_size - stat_size;
 static_assert(optimized_tt_size <= 1024 * 1024 * 1024, "Transposition table is too big");
 #endif
@@ -88,11 +88,12 @@ uint64_t lmr_misses;
     Move moves[MAX_MOVES]; \
     int len_moves = chess_get_legal_moves_inplace(board, moves, MAX_MOVES);
 
+#define SORT_MOVES qsort(moves, len_moves, sizeof *moves, compareMoves);
+
 
 // TODO
 // - [ ] test without custom libchess build
 // - [ ] expand and remove unneeded parens
-// - [ ] remove parens from sizeof() operators
 
 
 // notshit fen: r3k2r/p1p2ppp/2pp4/4p3/P7/2P1PbP1/RP5P/2Q2K1R w kq - 0 20
@@ -274,7 +275,7 @@ int alphaBeta(int alpha, int beta, int depthleft) {
     bool is_check = chess_in_check(board);
 
     FETCH_MOVES
-    qsort(moves, len_moves, sizeof(Move), compareMoves);
+    SORT_MOVES
 
     for (int i = 0; i < len_moves; i++) {
         if (is_not_quiescence || moves[i].capture || is_check) {
@@ -455,9 +456,9 @@ int main(void) {
         // including the sort here saved one token at some point
         // TODO: recheck
         FETCH_MOVES
-        qsort(moves, len_moves, sizeof(Move), compareMoves);
+        SORT_MOVES
 
-        memset(history_table, 0, sizeof(history_table));
+        memset(history_table, 0, sizeof history_table);
 
         // static to prevent longjmp clobbering
         static Move prevBestMove, bestMove;
@@ -494,7 +495,7 @@ int main(void) {
 
             int bestValue = -INFINITY;
 
-            qsort(moves, len_moves, sizeof(Move), compareMoves);
+            SORT_MOVES
 
             for (int i = 0; i < len_moves; i++) {
                 chess_make_move(board, moves[i]);
