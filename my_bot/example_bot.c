@@ -435,8 +435,9 @@ int main(void) {
         prevBestMove = bestMove = *moves;
         int prevBestValue = 0;
 
-        // TODO: move into stats
+#ifdef STATS
         uint64_t prev_searched_nodes = 0;
+#endif
 
         for (int depth = 1; depth < 100; depth++) {
 #ifdef STATS
@@ -458,11 +459,11 @@ int main(void) {
             lmr_hits = 0;
             lmr_misses = 0;
 #endif
-            // TODO: don't compare to 0
-            if (setjmp(timeout_jmp) != 0)
+            if (setjmp(timeout_jmp))
                 goto search_canceled;
 
             int bestValue = -INFINITY;
+            qsort(moves, len_moves, sizeof(Move), compareMoves);
             for (int i = 0; i < len_moves; i++) {
                 chess_make_move(board, moves[i]);
                 int alphaOffset = 25;
