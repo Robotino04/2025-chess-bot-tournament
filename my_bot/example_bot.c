@@ -66,6 +66,7 @@ struct {
     uint8_t type, depth;
     uint8_t bestMove_from, bestMove_to;
 } transposition_table[TRANSPOSITION_SIZE];
+
 #ifdef STATIC_ASSERTS
 constexpr size_t tt_size = sizeof transposition_table;
 constexpr size_t stat_size = sizeof transposition_table[0].stats * TRANSPOSITION_SIZE;
@@ -190,7 +191,7 @@ int static_eval() {
 
 #define GEN_HASH /* parse fix */              \
     uint64_t hash = chess_zobrist_key(board); \
-    auto entry = &transposition_table[hash % TRANSPOSITION_SIZE];
+    auto entry = transposition_table + hash % TRANSPOSITION_SIZE;
 
 
 int scoreMove(Move* move) {
@@ -231,8 +232,7 @@ int compareMoves(const void* a, const void* b) {
 #define max_best_value_and(X) MAX(bestValue, X)
 
 
-// TODO: move depthleft to first parameter
-int alphaBeta(int alpha, int beta, int depthleft) {
+int alphaBeta(int depthleft, int alpha, int beta) {
     if ((int64_t)chess_get_elapsed_time_millis() >= time_left) {
         longjmp(timeout_jmp, 1234);
     }
@@ -293,21 +293,21 @@ int alphaBeta(int alpha, int beta, int depthleft) {
 
             int score;
             if (depthleft <= 2 || i == 0) {
-                score = -alphaBeta(NORMAL_WINDOW, depthleft - 1);
+                score = -alphaBeta(depthleft - 1, NORMAL_WINDOW);
             }
             else {
                 bool dont_reduce = moves[i].capture || is_check || depthleft < 2 || i < 3;
 
-                score = -alphaBeta(NULL_WINDOW, depthleft - 1 - !dont_reduce);
+                score = -alphaBeta(depthleft - 1 - !dont_reduce, NULL_WINDOW);
                 if (score > alpha) {
                     // low-depth search looks promising. retry with full depth (if it was even reduced)
                     if (!dont_reduce) {
-                        score = -alphaBeta(NULL_WINDOW, depthleft - 1);
+                        score = -alphaBeta(depthleft - 1, NULL_WINDOW);
                     }
 
                     if (score > alpha && score <= beta) {
                         // full-depth search isn't conclusive, so try a full-window one
-                        score = -alphaBeta(NORMAL_WINDOW, depthleft - 1);
+                        score = -alphaBeta(depthleft - 1, NORMAL_WINDOW);
 #ifdef STATS
                         negascout_misses++;
                     }
@@ -479,7 +479,7 @@ int main(void) {
         searched_nodes = 1;
 #endif
 
-        for (int depth = 1; depth < 100; depth++) {
+        for (int depthleft = 2; depthleft < 100; depthleft++) {
 #ifdef STATS
             prev_searched_nodes = searched_nodes;
 
@@ -514,7 +514,7 @@ int main(void) {
                 int score;
                 while (true) {
                     // invert prevBestValue back, because we also invert the search results
-                    score = -alphaBeta(-prevBestValue - alphaOffset, -prevBestValue + betaOffset, depth);
+                    score = -alphaBeta(depthleft - 1, -prevBestValue - alphaOffset, -prevBestValue + betaOffset);
                     // don't invert because both are inverted once
                     if (score <= prevBestValue - alphaOffset) {
                         alphaOffset *= 2;
@@ -547,7 +547,7 @@ int main(void) {
             }
 
 #ifdef STATS
-            print_stats(depth, bestValue, prev_searched_nodes);
+            print_stats(depthleft - 1, bestValue, prev_searched_nodes);
 #endif
 
 
