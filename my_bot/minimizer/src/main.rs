@@ -233,6 +233,12 @@ fn reconstruct_source(tokens: &[PrefetchedToken]) -> String {
     out
 }
 
+#[derive(Clone, Debug)]
+struct ParsedMacro<'s> {
+    name: PrefetchedToken<'s>,
+    body: Vec<PrefetchedToken<'s>>,
+}
+
 fn main() {
     let clang = Clang::new().unwrap();
 
@@ -261,6 +267,53 @@ fn main() {
 
         i += 1;
     }
+
+    let mut tokens_it = tokens.iter().peekable();
+    let mut macros = vec![];
+
+    while let (Some(t1), Some(t2)) = (tokens_it.peek().cloned(), tokens_it.clone().nth(1)) {
+        if t1.spelling == b"#" && t2.spelling == b"define" {
+            tokens_it.next(); // consume '#'
+            tokens_it.next(); // consume 'define'
+
+            let name = *tokens_it.next().unwrap();
+            let mut m = ParsedMacro { name, body: vec![] };
+
+            while let Some(next) = tokens_it.peek() {
+                if next.spelling == b"#" {
+                    break;
+                }
+                m.body.push(*tokens_it.next().unwrap());
+            }
+
+            macros.push(m);
+        } else {
+            break;
+        }
+    }
+
+    let tokens = tokens_it.cloned().collect_vec();
+
+    //absorb_macros(&mut macros, &mut tokens);
+
+    let tokens = macros
+        .into_iter()
+        .flat_map(|m| {
+            [
+                vec![
+                    PrefetchedToken::new(b"#"),
+                    PrefetchedToken::new(b"define"),
+                    m.name,
+                ],
+                m.body,
+            ]
+        })
+        .flatten()
+        .chain(tokens)
+        .collect_vec();
+
+    println!("Absorbed to {}", tokens.len());
+
     let source = reconstruct_source(&tokens);
 
     std::fs::write("../example_bot_minimized.c", &source).unwrap();
