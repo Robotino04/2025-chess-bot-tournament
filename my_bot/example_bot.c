@@ -104,6 +104,7 @@ uint64_t lmr_misses;
 
 #define SORT_MOVES qsort(moves, len_moves, sizeof *moves, compareMoves);
 
+#define ITERATE_MOVES for (int i = 0; i < len_moves; i++)
 
 // TODO
 // - [ ] test without custom libchess build
@@ -298,7 +299,7 @@ int alphaBeta(int depthleft, int alpha, int beta) {
     FETCH_MOVES
     SORT_MOVES
 
-    for (int i = 0; i < len_moves; i++) {
+    ITERATE_MOVES {
         if (is_not_quiescence || moves[i].capture || is_check) {
             chess_make_move(board, moves[i]);
 
@@ -522,11 +523,12 @@ main_top:
 
         SORT_MOVES
 
-        for (int i = 0; i < len_moves; i++) {
+        ITERATE_MOVES {
             chess_make_move(board, moves[i]);
             int alphaOffset = 25;
             int betaOffset = 25;
             int score;
+            // TODO: turn into gotos
             while (true) {
                 // invert prevBestValue back, because we also invert the search results
                 score = -alphaBeta(depthleft - 1, -prevBestValue - alphaOffset, -prevBestValue + betaOffset);
