@@ -62,8 +62,7 @@ struct {
 #endif
     uint64_t hash;
     int eval;
-    uint8_t type, depth;
-    uint8_t bestMove_from, bestMove_to;
+    uint8_t type, depth, bestMove_from, bestMove_to;
 } transposition_table[TRANSPOSITION_SIZE];
 
 #ifdef STATIC_ASSERTS
@@ -272,10 +271,7 @@ int alphaBeta(int depthleft, int alpha, int beta) {
         return STATE_RETVALUE(GAME_STATE);
     }
 
-    int alpha_orig = alpha;
-
-    int bestValue = NEGATIVE_INFINITY;
-    int bestMoveIndex = 0;
+    int alpha_orig = alpha, bestValue = NEGATIVE_INFINITY, bestMoveIndex = 0;
 
     GEN_HASH
     if (is_not_quiescence) {
