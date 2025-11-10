@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     hash::{Hash, Hasher},
     ops::Range,
 };
@@ -13,10 +13,19 @@ use rustc_hash::{FxBuildHasher, FxHasher};
 
 const MACRO_OVERHEAD: i32 = 2 + 1;
 
-#[derive(Debug, Clone, Copy, Eq)]
+#[derive(Clone, Copy, Eq)]
 struct PrefetchedToken<'source> {
     spelling: &'source [u8],
     hash: u64,
+}
+
+impl<'source> std::fmt::Debug for PrefetchedToken<'source> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PrefetchedToken")
+            .field("spelling", &core::str::from_utf8(self.spelling).unwrap())
+            .field("hash", &self.hash)
+            .finish()
+    }
 }
 
 impl<'source> PartialEq for PrefetchedToken<'source> {
@@ -239,6 +248,345 @@ struct ParsedMacro<'s> {
     body: Vec<PrefetchedToken<'s>>,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Hash)]
+enum Side {
+    Front,
+    Back,
+}
+
+impl Side {
+    fn opposite(self) -> Self {
+        match self {
+            Side::Front => Side::Back,
+            Side::Back => Side::Front,
+        }
+    }
+}
+
+fn resolve_token<'s, 'a>(
+    token: &'a PrefetchedToken<'s>,
+    side: Side,
+    macros: &'a [ParsedMacro<'s>],
+) -> &'a PrefetchedToken<'s> {
+    if let Some(t) = macros.iter().find_map(|m| match side {
+        Side::Front if m.name == *token => m
+            .body
+            .first()
+            .map(|token| resolve_token(token, side, macros)),
+        Side::Back if m.name == *token => m
+            .body
+            .last()
+            .map(|token| resolve_token(token, side, macros)),
+        _ => None,
+    }) {
+        t
+    } else {
+        token
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum MacroLocation {
+    Nested,
+    Leaf,
+}
+
+/// Find out how deeply nested macros[index] is on the Front or Back side.
+/// Add the leaf macro to macros_to_outline
+fn locate_deepest_macro<'s>(
+    side: Side,
+    macros: &[ParsedMacro<'s>],
+    index: usize,
+    macros_to_outline: &mut HashSet<PrefetchedToken<'s>>,
+) -> MacroLocation {
+    let token = match side {
+        Side::Front => macros[index].body.first().cloned(),
+        Side::Back => macros[index].body.last().cloned(),
+    };
+
+    let Some(token) = token else {
+        return MacroLocation::Nested;
+    };
+
+    if let Some((i, _m)) = macros.iter().enumerate().find(|(_, m)| m.name == token) {
+        locate_deepest_macro(side, macros, i, macros_to_outline);
+
+        MacroLocation::Nested
+    } else {
+        macros_to_outline.insert(macros[index].name);
+        MacroLocation::Leaf
+    }
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+enum IndexType {
+    Macro { macro_index: usize, index: usize },
+    Tokens(usize),
+}
+
+impl IndexType {
+    fn resolve<'s, 'b>(
+        self,
+        macros: &'b [ParsedMacro<'s>],
+        tokens: &'b [PrefetchedToken<'s>],
+    ) -> &'b PrefetchedToken<'s> {
+        match self {
+            IndexType::Macro { macro_index, index } => &macros[macro_index].body[index],
+            IndexType::Tokens(i) => &tokens[i],
+        }
+    }
+}
+
+fn outline_tokens<'s>(
+    tokens: &mut Vec<PrefetchedToken<'s>>,
+    macros: &[ParsedMacro<'s>],
+    macros_to_outline: &HashSet<PrefetchedToken<'s>>,
+    side: Side,
+    current_macro: Option<&PrefetchedToken<'s>>, // used to avoid neighbor collisions
+) {
+    *tokens = tokens
+        .iter()
+        .enumerate()
+        .flat_map(|(i, t)| {
+            let neighbour_is_the_macro = current_macro.is_some_and(|m_name| match side {
+                Side::Front => tokens.get(i + 1) == Some(m_name),
+                Side::Back => tokens.get(i - 1) == Some(m_name),
+            });
+
+            if macros_to_outline.contains(t) && !neighbour_is_the_macro {
+                match side {
+                    Side::Front => vec![*t, *resolve_token(t, side.opposite(), macros)],
+                    Side::Back => vec![*resolve_token(t, side.opposite(), macros), *t],
+                }
+            } else {
+                vec![*t]
+            }
+        })
+        .collect();
+}
+
+fn absorb_macro_from_side<'s>(
+    index: usize,
+    macros: &mut Vec<ParsedMacro<'s>>,
+    mut tokens: Vec<PrefetchedToken<'s>>,
+    side: Side,
+) -> Vec<PrefetchedToken<'s>> {
+    let m = macros[index].clone();
+
+    // Collect all tokens (top-level + all macro bodies) for consistency check
+    let all_tokens = tokens
+        .iter()
+        .chain(macros.iter().flat_map(|m| m.body.iter()))
+        .collect_vec();
+
+    let can_replace = all_tokens
+        .iter()
+        .enumerate()
+        .filter(|(_i, tok)| ***tok == m.name)
+        .map(|(i, _tok)| match side {
+            Side::Front => all_tokens[i - 1],
+            Side::Back => all_tokens[i + 1],
+        })
+        .all_equal();
+
+    if !can_replace {
+        return tokens;
+    }
+
+    // Collect all indices for replacement
+    let indices: HashSet<IndexType> = tokens
+        .iter()
+        .enumerate()
+        .filter(|(_i, tok)| **tok == m.name)
+        .map(|(i, _)| match side {
+            Side::Front => IndexType::Tokens(i - 1),
+            Side::Back => IndexType::Tokens(i + 1),
+        })
+        .chain(macros.iter().enumerate().flat_map(|(macro_index, m)| {
+            m.body
+                .iter()
+                .enumerate()
+                .filter(|(_i, tok)| **tok == m.name)
+                .map(|(i, _)| match side {
+                    Side::Front => IndexType::Macro {
+                        macro_index,
+                        index: i - 1,
+                    },
+                    Side::Back => IndexType::Macro {
+                        macro_index,
+                        index: i + 1,
+                    },
+                })
+                .collect_vec()
+        }))
+        .collect();
+
+    if indices.is_empty() {
+        return tokens;
+    }
+
+    let the_token = *resolve_token(
+        indices.iter().next().unwrap().resolve(macros, &tokens),
+        side.opposite(),
+        macros,
+    );
+
+    println!("Macro {:?}, {side:?}", m.name);
+    println!("Replacing {the_token:?}");
+
+    let mut macros_to_outline = HashSet::new();
+
+    // Filter top-level tokens
+    tokens = tokens
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, t)| {
+            if indices.contains(&IndexType::Tokens(i)) {
+                if let Some((i, _)) = macros.iter().find_position(|m| m.name == t) {
+                    locate_deepest_macro(side.opposite(), macros, i, &mut macros_to_outline);
+                    Some(t)
+                } else {
+                    None
+                }
+            } else {
+                Some(t)
+            }
+        })
+        .collect_vec();
+
+    let macros_clone = macros.clone();
+
+    // Filter macro bodies and collect outline info
+    for (macro_index, m) in macros.iter_mut().enumerate() {
+        m.body = m
+            .body
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| {
+                if indices.contains(&IndexType::Macro {
+                    macro_index,
+                    index: i,
+                }) {
+                    if let Some((i, _)) = macros_clone.iter().find_position(|m| m.name == *t) {
+                        locate_deepest_macro(
+                            side.opposite(),
+                            &macros_clone,
+                            i,
+                            &mut macros_to_outline,
+                        );
+                        Some(t)
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(t)
+                }
+            })
+            .cloned()
+            .collect_vec();
+    }
+
+    println!("Outlining {macros_to_outline:?}");
+
+    // Apply outlining to top-level tokens
+    outline_tokens(&mut tokens, macros, &macros_to_outline, side, Some(&m.name));
+
+    // Apply outlining to all macro bodies
+    for inner_m in macros.iter_mut() {
+        outline_tokens(
+            &mut inner_m.body,
+            &macros_clone,
+            &macros_to_outline,
+            side,
+            Some(&m.name),
+        );
+    }
+
+    // Finally, insert the absorbed token into the current macro
+    match side {
+        Side::Front => {
+            macros[index].body.insert(0, the_token);
+            for m in macros
+                .iter_mut()
+                .filter(|m| macros_to_outline.contains(&m.name))
+            {
+                m.body.pop();
+            }
+        }
+        Side::Back => {
+            macros[index].body.push(the_token);
+            for m in macros
+                .iter_mut()
+                .filter(|m| macros_to_outline.contains(&m.name))
+            {
+                m.body.remove(0);
+            }
+        }
+    }
+
+    tokens
+}
+
+fn count_tokens<'s>(macros: &[ParsedMacro<'s>], tokens: &[PrefetchedToken<'s>]) -> usize {
+    macros.iter().map(|m| m.body.len() + 3).sum::<usize>() + tokens.len()
+}
+
+fn absorb_macros<'s>(
+    macros: &mut Vec<ParsedMacro<'s>>,
+    mut tokens: Vec<PrefetchedToken<'s>>,
+) -> Vec<PrefetchedToken<'s>> {
+    let mut still_going = true;
+    while still_going {
+        still_going = false;
+
+        for side in [Side::Front, Side::Back] {
+            for i in 0..macros.len() {
+                let mut macros_clone = macros.clone();
+                let new_tokens = absorb_macro_from_side(i, &mut macros_clone, tokens.clone(), side);
+
+                macros_clone.retain(|m| !m.body.is_empty());
+
+                if count_tokens(&macros_clone, &new_tokens) < count_tokens(macros, &tokens) {
+                    tokens = new_tokens;
+                    *macros = macros_clone;
+                    still_going = true;
+
+                    {
+                        let tokens = macros
+                            .iter()
+                            .flat_map(|m| {
+                                [
+                                    vec![
+                                        PrefetchedToken::new(b"#"),
+                                        PrefetchedToken::new(b"define"),
+                                        m.name,
+                                    ],
+                                    m.body.clone(),
+                                ]
+                            })
+                            .flatten()
+                            .chain(tokens.clone())
+                            .collect_vec();
+
+                        println!("Absorbed to {}", tokens.len());
+
+                        let source = reconstruct_source(&tokens);
+
+                        std::fs::write("../example_bot_minimized.c", &source).unwrap();
+
+                        println!("\n------------\n{source}\n------------\n");
+                        std::io::stdin().read_line(&mut String::new()).unwrap();
+                    }
+
+                    break;
+                }
+            }
+        }
+    }
+
+    tokens
+}
+
 fn main() {
     let clang = Clang::new().unwrap();
 
@@ -294,7 +642,10 @@ fn main() {
 
     let tokens = tokens_it.cloned().collect_vec();
 
-    //absorb_macros(&mut macros, &mut tokens);
+    // this doesn't actually help
+    if false {
+        let tokens = absorb_macros(&mut macros, tokens.clone());
+    }
 
     let tokens = macros
         .into_iter()
