@@ -467,116 +467,118 @@ void print_stats(int depth, int bestValue, uint64_t prev_searched_nodes) {
 #endif
 
 // TODO: maybe remove void
-int main(void) {
-    // TODO: make recursive
+int main() {
+    // gcc doesn't like recursive main for some reason.
+    // I guess we won't save that token
+main_top:
 
-    while (true) {
-        board = chess_get_board();
+    board = chess_get_board();
 
-        time_left = MAX((int64_t)chess_get_time_millis() / 40, 5);
+    time_left = MAX((int64_t)chess_get_time_millis() / 40, 5);
 
-        // including the sort here saved one token at some point
-        // TODO: recheck
-        FETCH_MOVES
+    // including the sort here saved one token at some point
+    // TODO: recheck
+    FETCH_MOVES
+    SORT_MOVES
+
+    memset(history_table, 0, sizeof history_table);
+
+    // static to prevent longjmp clobbering
+    static Move prevBestMove, bestMove;
+    prevBestMove = bestMove = *moves;
+
+    int prevBestValue = 0;
+
+#ifdef STATS
+    uint64_t prev_searched_nodes = 0;
+    searched_nodes = 1;
+#endif
+
+    for (int depthleft = 2; depthleft < 100; depthleft++) {
+#ifdef STATS
+        prev_searched_nodes = searched_nodes;
+
+        searched_nodes = 0;
+        transposition_hits = 0;
+        cached_nodes = 0;
+        transposition_overwrites = 0;
+        new_hashes = 0;
+        researches = 0;
+
+        first_move_cuts = 0;
+        first_move_non_cuts = 0;
+
+        negascout_hits = 0;
+        negascout_misses = 0;
+
+        lmr_hits = 0;
+        lmr_misses = 0;
+#endif
+        if (setjmp(timeout_jmp)) {
+            goto search_canceled;
+        }
+
+        int bestValue = NEGATIVE_INFINITY;
+
         SORT_MOVES
 
-        memset(history_table, 0, sizeof history_table);
+        for (int i = 0; i < len_moves; i++) {
+            chess_make_move(board, moves[i]);
+            int alphaOffset = 25;
+            int betaOffset = 25;
+            int score;
+            while (true) {
+                // invert prevBestValue back, because we also invert the search results
+                score = -alphaBeta(depthleft - 1, -prevBestValue - alphaOffset, -prevBestValue + betaOffset);
+                // don't invert because both are inverted once
+                if (score <= prevBestValue - alphaOffset) {
+                    alphaOffset *= 2;
 
-        // static to prevent longjmp clobbering
-        static Move prevBestMove, bestMove;
-        prevBestMove = bestMove = *moves;
-
-        int prevBestValue = 0;
-
-#ifdef STATS
-        uint64_t prev_searched_nodes = 0;
-        searched_nodes = 1;
-#endif
-
-        for (int depthleft = 2; depthleft < 100; depthleft++) {
-#ifdef STATS
-            prev_searched_nodes = searched_nodes;
-
-            searched_nodes = 0;
-            transposition_hits = 0;
-            cached_nodes = 0;
-            transposition_overwrites = 0;
-            new_hashes = 0;
-            researches = 0;
-
-            first_move_cuts = 0;
-            first_move_non_cuts = 0;
-
-            negascout_hits = 0;
-            negascout_misses = 0;
-
-            lmr_hits = 0;
-            lmr_misses = 0;
-#endif
-            if (setjmp(timeout_jmp)) {
-                goto search_canceled;
-            }
-
-            int bestValue = NEGATIVE_INFINITY;
-
-            SORT_MOVES
-
-            for (int i = 0; i < len_moves; i++) {
-                chess_make_move(board, moves[i]);
-                int alphaOffset = 25;
-                int betaOffset = 25;
-                int score;
-                while (true) {
-                    // invert prevBestValue back, because we also invert the search results
-                    score = -alphaBeta(depthleft - 1, -prevBestValue - alphaOffset, -prevBestValue + betaOffset);
-                    // don't invert because both are inverted once
-                    if (score <= prevBestValue - alphaOffset) {
-                        alphaOffset *= 2;
-
-                        // fail-low: the real score is lower than alpha (aka. prevBestValue - alphaOffset).
-                        // so no need to search the exact value if this is already bad enough
-                        if (score <= bestValue) {
-                            break;
-                        }
-                    }
-                    else if (score >= prevBestValue + betaOffset) {
-                        betaOffset *= 2;
-                        // fail-high: the real score is higher than beta (aka. prevBestValue + betaOffset).
-                        // so we keep searching with a bigger window
-                    }
-                    else {
+                    // fail-low: the real score is lower than alpha (aka. prevBestValue - alphaOffset).
+                    // so no need to search the exact value if this is already bad enough
+                    if (score <= bestValue) {
                         break;
                     }
+                }
+                else if (score >= prevBestValue + betaOffset) {
+                    betaOffset *= 2;
+                    // fail-high: the real score is higher than beta (aka. prevBestValue + betaOffset).
+                    // so we keep searching with a bigger window
+                }
+                else {
+                    break;
+                }
 #ifdef STATS
-                    researches++;
+                researches++;
 #endif
-                }
-                prevBestValue = score;
-                chess_undo_move(board);
-
-                if (score > bestValue) {
-                    bestValue = score;
-                    bestMove = moves[i];
-                }
             }
+            prevBestValue = score;
+            chess_undo_move(board);
 
-#ifdef STATS
-            print_stats(depthleft - 1, bestValue, prev_searched_nodes);
-#endif
-
-
-            prevBestMove = bestMove;
-            if (bestValue >= INFINITY) {
-                break;
+            if (score > bestValue) {
+                bestValue = score;
+                bestMove = moves[i];
             }
         }
-    search_canceled:
 
-        // TODO: use partial search results
-        chess_push(prevBestMove);
+#ifdef STATS
+        print_stats(depthleft - 1, bestValue, prev_searched_nodes);
+#endif
 
-        chess_free_board(board);
 
-        chess_done();
+        prevBestMove = bestMove;
+        if (bestValue >= INFINITY) {
+            break;
+        }
     }
+search_canceled:
+
+    // TODO: use partial search results
+    chess_push(prevBestMove);
+
+    chess_free_board(board);
+
+    chess_done();
+
+    goto main_top;
 }
