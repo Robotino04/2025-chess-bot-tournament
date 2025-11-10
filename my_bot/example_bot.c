@@ -148,26 +148,40 @@ int static_eval_me(PlayerColor color) {
 
     int material = MATERIAL_OF(color);
 
-    float endgame_weight = 0;
+    float endgame_weight = 16.0f;
     int king = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
-    endgame_weight += stdc_count_ones_ul(GET_ENDGAME_WEIGHT(color));
+    endgame_weight -= stdc_count_ones_ul(GET_ENDGAME_WEIGHT(color));
 
     color ^= 1;
 
     int king2 = chess_get_index_from_bitboard(chess_get_bitboard(board, color, KING));
-    endgame_weight += stdc_count_ones_ul(GET_ENDGAME_WEIGHT(color));
-
-    endgame_weight = 1.0f - endgame_weight / 16.0f;
+    endgame_weight -= stdc_count_ones_ul(GET_ENDGAME_WEIGHT(color));
 
 
     // color is inverted already
     if (material > 200 /* there's a plus in the macro */ MATERIAL_OF(color)) {
 #define king2_file king2 % 8
 #define king2_rank king2 / 8
+#define king1_file king % 8
+#define king1_rank king / 8
 
+        /*
+        ORIGINAL:
         material += ((7 - MIN(king2_file, 7 - king2_file) - MIN(king2_rank, 7 - king2_rank)) * 5.0f
                      + (14 - abs(king % 8 - king2_file) - abs(king / 8 - king2_rank)))
                   * endgame_weight;
+        ABS-IFIED:
+        material += ((fabsf(king2_file - 3.5f) + fabsf(king2_rank - 3.5f)) * 5.0f
+                     + (14 - abs(king % 8 - king2_file) - abs(king / 8 - king2_rank)))
+                  * endgame_weight;
+
+        ^^^^^ These are invalid now because endgame_weight has changed value
+        */
+
+
+        material += (14 + (fabsf(king2_file - 3.5f) + fabsf(king2_rank - 3.5f)) * 5.0f
+                     - abs(king1_file - king2_file) - abs(king1_rank - king2_rank))
+                  * endgame_weight / 16.0f;
     }
 
     return material;
