@@ -541,34 +541,32 @@ main_top:
             chess_make_move(board, moves[i]);
             int alphaOffset = 25;
             int betaOffset = 25;
-            int score;
-            // TODO: turn into gotos
-            while (true) {
-                // invert prevBestValue back, because we also invert the search results
-                score = -alphaBeta(depthleft - 1, -prevBestValue - alphaOffset, -prevBestValue + betaOffset);
-                // don't invert because both are inverted once
-                if (score <= prevBestValue - alphaOffset) {
-                    alphaOffset *= 2;
-
-                    // fail-low: the real score is lower than alpha (aka. prevBestValue - alphaOffset).
-                    // so no need to search the exact value if this is already bad enough
-                    if (score <= bestValue) {
-                        break;
-                    }
-                }
-                else if (score >= prevBestValue + betaOffset) {
-                    betaOffset *= 2;
-                    // fail-high: the real score is higher than beta (aka. prevBestValue + betaOffset).
-                    // so we keep searching with a bigger window
-                }
-                else {
-                    break;
-                }
 #ifdef STATS
-                researches++;
+            researches--; // remove the initial overcount
 #endif
+        aspiration_fail:
+#ifdef STATS
+            researches++;
+#endif
+            // invert prevBestValue back, because we also invert the search results
+            int score = -alphaBeta(depthleft - 1, -prevBestValue - alphaOffset, -prevBestValue + betaOffset);
+            // don't invert because both are inverted once
+            if (score <= prevBestValue - alphaOffset && score > bestValue) {
+                // fail-low: the real score is lower than alpha (aka. prevBestValue - alphaOffset).
+                // still worth searching though because it is still higher than bestValue
+
+                alphaOffset *= 2;
+                goto aspiration_fail;
             }
-            prevBestValue = score;
+            if (score >= prevBestValue + betaOffset) {
+                // fail-high: the real score is higher than beta (aka. prevBestValue + betaOffset).
+                // so we keep searching with a bigger window
+                //
+                betaOffset *= 2;
+                goto aspiration_fail;
+            }
+
+            prevBestValue = MAX(prevBestValue, score);
             chess_undo_move(board);
 
             if (score > bestValue) {
