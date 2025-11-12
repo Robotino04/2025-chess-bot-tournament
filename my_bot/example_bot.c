@@ -216,20 +216,11 @@ int scoreMove(Move* move) {
 #define MAX_HISTORY               10000
     // clang-format on
 
-    if (move->from == 1UL << ENTRY.bestMove_from && move->to == 1UL << ENTRY.bestMove_to) {
-        return SCORE_TIER_PV;
-    }
-
-
-    if (move->capture) {
-        return SCORE_TIER_CAPTURE + 10 * chess_get_piece_from_bitboard(board, move->to)
-             - chess_get_piece_from_bitboard(board, move->from);
-    }
-    if (move->promotion) {
-        return SCORE_TIER_PROMOTION + move->promotion;
-    }
-
-    return INDEX_HISTORY_TABLE(move->from, move->to);
+    return move->from == 1UL << ENTRY.bestMove_from && move->to == 1UL << ENTRY.bestMove_to ? SCORE_TIER_PV
+         : move->capture ? SCORE_TIER_CAPTURE + 10 * chess_get_piece_from_bitboard(board, move->to)
+                               - chess_get_piece_from_bitboard(board, move->from)
+         : move->promotion ? SCORE_TIER_PROMOTION + move->promotion
+                           : INDEX_HISTORY_TABLE(move->from, move->to);
 }
 
 int compareMoves(const void* a, const void* b) {
@@ -355,10 +346,10 @@ int alphaBeta(int depthleft, int alpha, int beta) {
 
 
             if (score > bestValue) {
-                bestMoveIndex = i;
+                bestMoveIndex = i,     //
+                    bestValue = score; //
             }
 
-            bestValue = max_best_value_and(score);
             alpha = max_best_value_and(alpha);
             if (alpha >= beta) {
 #ifdef STATS
