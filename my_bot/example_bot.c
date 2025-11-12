@@ -566,11 +566,10 @@ main_top:
                 goto aspiration_fail;
             }
 
-            prevBestValue = MAX(prevBestValue, score);
             chess_undo_move(board);
 
             if (score > bestValue) {
-                bestValue = score;
+                bestValue = prevBestValue = score;
                 bestMove = moves[i];
             }
         }
