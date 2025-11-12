@@ -1,6 +1,5 @@
 #include "chessapi.h"
 #include "stdlib.h"
-#include "setjmp.h"
 
 #ifndef MINIMIZE
     #define STATS
@@ -49,7 +48,6 @@ static_assert(TRANSPOSITION_SIZE == (1ul << 26));
 
 
 Board* board;
-jmp_buf timeout_jmp;
 
 struct {
 #ifdef STATS
@@ -70,8 +68,8 @@ static_assert(optimized_tt_size <= 1024 * 1024 * 1024, "Transposition table is t
 #endif
 
 
-// [2][64][64]
-int history_table[8192];
+int history_table[8192], // [2][64][64]
+    timeout_jmp[20];     // reserve more be safe: https://gcc.gnu.org/onlinedocs/gcc/Nonlocal-Gotos.html
 
 #define INDEX_HISTORY_TABLE(FROM, TO) \
     history_table[chess_is_white_turn(board) * 4096 + chess_get_index_from_bitboard(FROM) * 64 + chess_get_index_from_bitboard(TO)]
@@ -234,7 +232,7 @@ int compareMoves(const void* a, const void* b) {
 
 int alphaBeta(int depthleft, int alpha, int beta) {
     if ((int64_t)chess_get_elapsed_time_millis() >= MAX((int64_t)chess_get_time_millis() / 40, 5)) {
-        longjmp(timeout_jmp, 1234);
+        __builtin_longjmp(timeout_jmp, 1);
     }
 
 #ifdef STATS
@@ -520,7 +518,7 @@ main_top:
         lmr_hits = 0;
         lmr_misses = 0;
 #endif
-        if (setjmp(timeout_jmp)) {
+        if (__builtin_setjmp(timeout_jmp)) {
             goto search_canceled;
         }
 
