@@ -174,9 +174,8 @@ int static_eval_me(PlayerColor color) {
         */
 
 
-        // TODO: use int abs
         material += (14 + (__builtin_fabsf(king2_file - 3.5f) + __builtin_fabsf(king2_rank - 3.5f)) * 5.0f
-                     - __builtin_fabsf(king1_file - king2_file) - __builtin_fabsf(king1_rank - king2_rank))
+                     - __builtin_abs(king1_file - king2_file) - __builtin_abs(king1_rank - king2_rank))
                   * endgame_weight / 16.0f;
     }
 
@@ -482,20 +481,18 @@ main_top:
     FETCH_MOVES
     SORT_MOVES
 
+#ifdef STATS
+    uint64_t prev_searched_nodes = 0;
+    searched_nodes = 1;
+#endif
+
     __builtin_memset(history_table, 0, sizeof history_table);
 
     // static to prevent longjmp clobbering
     static Move prevBestMove, bestMove;
     prevBestMove = bestMove = *moves;
 
-    int prevBestValue = 0;
-
-#ifdef STATS
-    uint64_t prev_searched_nodes = 0;
-    searched_nodes = 1;
-#endif
-
-    int depthleft = 1;
+    int prevBestValue = 0, depthleft = 1;
 
     while (depthleft++) {
 
@@ -528,8 +525,7 @@ main_top:
 
         ITERATE_MOVES {
             chess_make_move(board, moves[i]);
-            int alphaOffset = 25;
-            int betaOffset = 25;
+            int alphaOffset = 25, betaOffset = 25;
 #ifdef STATS
             researches--; // remove the initial overcount
 #endif
