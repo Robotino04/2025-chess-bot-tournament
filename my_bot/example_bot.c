@@ -292,6 +292,9 @@ int alphaBeta(int depthleft, int alpha, int beta) {
         return alpha;
     }
 
+#define NULL_WINDOW -alpha - 1, -alpha
+#define NORMAL_WINDOW -beta, -alpha
+
     bool is_check = chess_in_check(board);
 
     FETCH_MOVES
@@ -301,16 +304,12 @@ int alphaBeta(int depthleft, int alpha, int beta) {
         if (is_not_quiescence || moves[i].capture || is_check) {
             chess_make_move(board, moves[i]);
 
-#define NULL_WINDOW -alpha - 1, -alpha
-#define NORMAL_WINDOW -beta, -alpha
-
             int score;
             if (depthleft <= 2 || i == 0) {
                 score = -alphaBeta(depthleft - 1, NORMAL_WINDOW);
             }
             else {
-#define do_reduce !(moves[i].capture || is_check || depthleft < 2 || i < 3)
-                // #define dont_reduce !dont_reduce
+#define do_reduce !(moves[i].capture || is_check || i < 3)
 
                 score = -alphaBeta(depthleft - 1 - do_reduce, NULL_WINDOW);
 
