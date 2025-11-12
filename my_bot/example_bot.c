@@ -1,8 +1,6 @@
 #include "chessapi.h"
 #include "stdlib.h"
-#include "math.h"
 #include "setjmp.h"
-#include "string.h"
 
 #ifndef MINIMIZE
     #define STATS
@@ -28,8 +26,8 @@ static_assert(((long long)(int)INFINITY) == (long)INFINITY, "INFINITY is too lar
 static_assert(-1 == NEGATIVE_ONE, "-1 != NEGATIVE_ONE");
 #endif
 
-#define MIN(A, B) fminf(A, B)
-#define MAX(A, B) fmaxf(A, B)
+#define MIN(A, B) __builtin_fminf(A, B)
+#define MAX(A, B) __builtin_fmaxf(A, B)
 
 
 #define TRANSPOSITION_SIZE 0b100000000000000000000000000ul
@@ -179,8 +177,8 @@ int static_eval_me(PlayerColor color) {
         */
 
 
-        material += (14 + (fabsf(king2_file - 3.5f) + fabsf(king2_rank - 3.5f)) * 5.0f
-                     - abs(king1_file - king2_file) - abs(king1_rank - king2_rank))
+        material += (14 + (__builtin_fabsf(king2_file - 3.5f) + __builtin_fabsf(king2_rank - 3.5f)) * 5.0f
+                     - __builtin_fabsf(king1_file - king2_file) - __builtin_fabsf(king1_rank - king2_rank))
                   * endgame_weight / 16.0f;
     }
 
@@ -485,7 +483,7 @@ main_top:
     FETCH_MOVES
     SORT_MOVES
 
-    memset(history_table, 0, sizeof history_table);
+    __builtin_memset(history_table, 0, sizeof history_table);
 
     // static to prevent longjmp clobbering
     static Move prevBestMove, bestMove;
