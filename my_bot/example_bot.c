@@ -49,7 +49,6 @@ static_assert(TRANSPOSITION_SIZE == (1ul << 26));
 
 
 Board* board;
-int64_t time_left;
 jmp_buf timeout_jmp;
 
 struct {
@@ -177,6 +176,7 @@ int static_eval_me(PlayerColor color) {
         */
 
 
+        // TODO: use int abs
         material += (14 + (__builtin_fabsf(king2_file - 3.5f) + __builtin_fabsf(king2_rank - 3.5f)) * 5.0f
                      - __builtin_fabsf(king1_file - king2_file) - __builtin_fabsf(king1_rank - king2_rank))
                   * endgame_weight / 16.0f;
@@ -233,7 +233,7 @@ int compareMoves(const void* a, const void* b) {
 
 
 int alphaBeta(int depthleft, int alpha, int beta) {
-    if ((int64_t)chess_get_elapsed_time_millis() >= time_left) {
+    if ((int64_t)chess_get_elapsed_time_millis() >= MAX((int64_t)chess_get_time_millis() / 40, 5)) {
         longjmp(timeout_jmp, 1234);
     }
 
@@ -478,9 +478,6 @@ int main() {
 main_top:
 
     board = chess_get_board();
-
-    // TODO: make macro
-    time_left = MAX((int64_t)chess_get_time_millis() / 40, 5);
 
     // including the sort here saved one token at some point
     // TODO: recheck
