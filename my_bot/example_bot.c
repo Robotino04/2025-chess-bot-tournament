@@ -312,31 +312,35 @@ int alphaBeta(int depthleft, int alpha, int beta) {
                 score = -alphaBeta(depthleft - 1, NORMAL_WINDOW);
             }
             else {
-                bool dont_reduce = moves[i].capture || is_check || depthleft < 2 || i < 3;
+#define do_reduce !(moves[i].capture || is_check || depthleft < 2 || i < 3)
+                // #define dont_reduce !dont_reduce
 
-                score = -alphaBeta(depthleft - 1 - !dont_reduce, NULL_WINDOW);
+                score = -alphaBeta(depthleft - 1 - do_reduce, NULL_WINDOW);
+
                 if (score > alpha) {
-                    // low-depth search looks promising. retry with full depth (if it was even reduced)
-                    if (!dont_reduce) {
-                        score = -alphaBeta(depthleft - 1, NULL_WINDOW);
-                    }
-
-                    if (score > alpha && score <= beta) {
-                        // full-depth search isn't conclusive, so try a full-window one
-                        score = -alphaBeta(depthleft - 1, NORMAL_WINDOW);
-#ifdef STATS
-                        negascout_misses++;
-                    }
-                    else {
-                        negascout_hits++;
-#endif
-                    }
+                    // low-depth search looks promising so retry with full depth.
+                    // This will always research even if we didn't even reduce depth.
+                    // The TT should catch that in most cases so it's cheap.
+                    //
+                    // if (!dont_reduce)
+                    score = -alphaBeta(depthleft - 1, NULL_WINDOW);
 
 #ifdef STATS
                     lmr_misses++;
                 }
                 else {
                     lmr_hits++;
+#endif
+                }
+
+                if (score > alpha && score <= beta) {
+                    // full-depth search isn't conclusive, so try a full-window one
+                    score = -alphaBeta(depthleft - 1, NORMAL_WINDOW);
+#ifdef STATS
+                    negascout_misses++;
+                }
+                else {
+                    negascout_hits++;
 #endif
                 }
             }
@@ -468,7 +472,6 @@ void print_stats(int depth, int bestValue, uint64_t prev_searched_nodes) {
 }
 #endif
 
-// TODO: maybe remove void
 int main() {
     // gcc doesn't like recursive main for some reason.
     // I guess we won't save that token
@@ -476,6 +479,7 @@ main_top:
 
     board = chess_get_board();
 
+    // TODO: make macro
     time_left = MAX((int64_t)chess_get_time_millis() / 40, 5);
 
     // including the sort here saved one token at some point
@@ -576,8 +580,6 @@ main_top:
         }
     }
 
-
-    // END ITERATIVE_DEEPENING
 
 search_canceled:
 
