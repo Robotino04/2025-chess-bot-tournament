@@ -202,13 +202,11 @@ int static_eval() {
 */
 
 
-#define GEN_HASH /* parse fix */              \
-    uint64_t hash = chess_zobrist_key(board); \
-    auto entry = transposition_table + hash % TRANSPOSITION_SIZE;
+#define HASH chess_zobrist_key(board)
+#define ENTRY transposition_table[HASH % TRANSPOSITION_SIZE]
 
 
 int scoreMove(Move* move) {
-    GEN_HASH
 
     // clang-format off
 #define SCORE_TIER_PV          10000000
@@ -218,7 +216,7 @@ int scoreMove(Move* move) {
 #define MAX_HISTORY               10000
     // clang-format on
 
-    if (move->from == 1UL << entry->bestMove_from && move->to == 1UL << entry->bestMove_to) {
+    if (move->from == 1UL << ENTRY.bestMove_from && move->to == 1UL << ENTRY.bestMove_to) {
         return SCORE_TIER_PV;
     }
 
@@ -288,20 +286,20 @@ int alphaBeta(int depthleft, int alpha, int beta) {
 
     int alpha_orig = alpha, bestValue = NEGATIVE_INFINITY, bestMoveIndex = 0;
 
-    GEN_HASH
     if (is_not_quiescence) {
-        if (entry->depth >= depthleft && entry->hash == hash
-            && (entry->type == TYPE_EXACT || (entry->type == TYPE_LOWER_BOUND && entry->eval >= beta)
-                || (entry->type == TYPE_UPPER_BOUND && entry->eval < alpha))) {
+        if (ENTRY.depth >= depthleft && ENTRY.hash == HASH
+            && (ENTRY.type == TYPE_EXACT || (ENTRY.type == TYPE_LOWER_BOUND && ENTRY.eval >= beta)
+                || (ENTRY.type == TYPE_UPPER_BOUND && ENTRY.eval < alpha))) {
 #ifdef STATS
             transposition_hits++;
-            cached_nodes += entry->stats.num_nodes;
+            cached_nodes += ENTRY.stats.num_nodes;
 #endif
-            return entry->eval;
+            return ENTRY.eval;
         }
     }
     else {
-        bestValue = (chess_is_white_turn(board) ? 1 : NEGATIVE_ONE) * (static_eval_me(WHITE) - static_eval_me(BLACK));
+        bestValue = static_eval_me(WHITE) - static_eval_me(BLACK);
+        bestValue *= chess_is_white_turn(board) ? 1 : NEGATIVE_ONE;
         alpha = max_best_value_and(alpha);
         if (alpha >= beta) {
             return bestValue;
@@ -400,10 +398,10 @@ int alphaBeta(int depthleft, int alpha, int beta) {
 
 
     // cannot be simplified because even though the depth is good, the score might not cause a cutoff
-    if (is_not_quiescence && (entry->depth < depthleft || entry->hash != hash)) {
+    if (is_not_quiescence && (ENTRY.depth < depthleft || ENTRY.hash != HASH)) {
 #ifdef STATS
-        entry->stats.num_nodes = (searched_nodes + cached_nodes) - (old_searched_nodes + old_cached_nodes);
-        if (entry->type == TYPE_UNUSED) {
+        ENTRY.stats.num_nodes = (searched_nodes + cached_nodes) - (old_searched_nodes + old_cached_nodes);
+        if (ENTRY.type == TYPE_UNUSED) {
             hashes_used++;
             new_hashes++;
         }
@@ -412,14 +410,14 @@ int alphaBeta(int depthleft, int alpha, int beta) {
         }
 #endif
 
-        entry->hash = hash;
-        entry->eval = bestValue;
-        entry->depth = depthleft;
-        entry->type = bestValue <= alpha_orig ? TYPE_UPPER_BOUND
-                    : bestValue >= beta       ? TYPE_LOWER_BOUND
-                                              : TYPE_EXACT;
-        entry->bestMove_from = chess_get_index_from_bitboard(moves[bestMoveIndex].from);
-        entry->bestMove_to = chess_get_index_from_bitboard(moves[bestMoveIndex].to);
+        ENTRY.hash = HASH;
+        ENTRY.eval = bestValue;
+        ENTRY.depth = depthleft;
+        ENTRY.type = bestValue <= alpha_orig ? TYPE_UPPER_BOUND
+                   : bestValue >= beta       ? TYPE_LOWER_BOUND
+                                             : TYPE_EXACT;
+        ENTRY.bestMove_from = chess_get_index_from_bitboard(moves[bestMoveIndex].from);
+        ENTRY.bestMove_to = chess_get_index_from_bitboard(moves[bestMoveIndex].to);
     }
 
     return bestValue;
@@ -509,7 +507,10 @@ main_top:
     searched_nodes = 1;
 #endif
 
-    for (int depthleft = 2; depthleft < 100; depthleft++) {
+    int depthleft = 1;
+
+    while (depthleft++) {
+
 #ifdef STATS
         prev_searched_nodes = searched_nodes;
 
@@ -581,9 +582,14 @@ main_top:
 
         prevBestMove = bestMove;
         if (bestValue >= INFINITY) {
+            // stop searching if we found guaranteed mate
             break;
         }
     }
+
+
+    // END ITERATIVE_DEEPENING
+
 search_canceled:
 
     // TODO: use partial search results
