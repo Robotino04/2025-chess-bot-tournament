@@ -104,7 +104,7 @@ uint64_t lmr_misses;
 
 #define SORT_MOVES qsort(moves, len_moves, sizeof *moves, compareMoves);
 
-#define ITERATE_MOVES for (int i = 0; i < len_moves; i++)
+#define ITERATE_MOVES for (int i = NEGATIVE_ONE; ++i < len_moves;)
 
 // TODO
 // - [ ] test without custom libchess build
@@ -298,12 +298,12 @@ int alphaBeta(int depthleft, int alpha, int beta) {
         }
     }
     else {
-        bestValue = static_eval_me(WHITE) - static_eval_me(BLACK);
-        bestValue *= chess_is_white_turn(board) ? 1 : NEGATIVE_ONE;
-        alpha = max_best_value_and(alpha);
-        if (alpha >= beta) {
-            return bestValue;
-        }
+        bestValue = static_eval_me(WHITE) - static_eval_me(BLACK),      //
+            bestValue *= chess_is_white_turn(board) ? 1 : NEGATIVE_ONE, //
+            alpha = max_best_value_and(alpha);                          //
+    }
+    if (alpha >= beta) {
+        return alpha;
     }
 
     bool is_check = chess_in_check(board);
@@ -410,14 +410,14 @@ int alphaBeta(int depthleft, int alpha, int beta) {
         }
 #endif
 
-        ENTRY.hash = HASH;
-        ENTRY.eval = bestValue;
-        ENTRY.depth = depthleft;
-        ENTRY.type = bestValue <= alpha_orig ? TYPE_UPPER_BOUND
-                   : bestValue >= beta       ? TYPE_LOWER_BOUND
-                                             : TYPE_EXACT;
-        ENTRY.bestMove_from = chess_get_index_from_bitboard(moves[bestMoveIndex].from);
-        ENTRY.bestMove_to = chess_get_index_from_bitboard(moves[bestMoveIndex].to);
+        ENTRY.hash = HASH,                                                                  //
+            ENTRY.eval = bestValue,                                                         //
+            ENTRY.depth = depthleft,                                                        //
+            ENTRY.type = bestValue <= alpha_orig ? TYPE_UPPER_BOUND                         //
+                       : bestValue >= beta       ? TYPE_LOWER_BOUND                         //
+                                                 : TYPE_EXACT,                                    //
+            ENTRY.bestMove_from = chess_get_index_from_bitboard(moves[bestMoveIndex].from), //
+            ENTRY.bestMove_to = chess_get_index_from_bitboard(moves[bestMoveIndex].to);     //
     }
 
     return bestValue;
@@ -570,8 +570,8 @@ main_top:
             chess_undo_move(board);
 
             if (score > bestValue) {
-                bestValue = prevBestValue = score;
-                bestMove = moves[i];
+                bestValue = prevBestValue = score, //
+                    bestMove = moves[i];           //
             }
         }
 
