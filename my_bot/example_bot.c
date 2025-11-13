@@ -239,7 +239,7 @@ int compareMoves(const void* a, const void* b) {
 
 
 int alphaBeta(int depthleft, int alpha, int beta) {
-    if ((int64_t)chess_get_elapsed_time_millis() >= MAX((int64_t)chess_get_time_millis() / 40, 5)) {
+    if ((int64_t)chess_get_elapsed_time_millis() >= MAX((int64_t)chess_get_time_millis() / 40, 1)) {
         __builtin_longjmp(history_table + JUMP_BUFFER_OFFSET, 1);
     }
 

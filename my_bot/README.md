@@ -11,3 +11,20 @@ nix run nixpkgs#pv -- -r --eta lichess_db_eval.jsonl | jq -r '
   "\($root.fen)\n\($best.depth)\n\($best.pvs[0].cp)"
 ' > lichess_db_eval_processed.raw
 ```
+
+## Description
+A classical chess engine with pretty average features:
+- Aspiration windows
+- History heuristic
+- Iterative deepening
+- Late move reduction
+- Material-based static evaluation
+- Move ordering
+- NegaScout/PVS
+- Quiescence search
+- Some statistics (sadly disabled for tokens)
+- Transposition table
+
+Even though it shares a name with my "big" chess engine Thera (which is also terrible), it was written from scratch. I just couldn't think of a better name :3 
+
+All macros are generated using my own minimizer and a greedy algorithm. Most of that is unreadable though; probably because at least 30% is vibe coded. Said minimizer also formats the code in Neuros gear shape.
