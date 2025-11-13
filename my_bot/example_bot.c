@@ -369,25 +369,20 @@ int alphaBeta(int depthleft, int alpha, int beta) {
                 }
 #endif
 
-                if (is_not_quiescence) {
 #define HISTORY_UPDATE_INDEX INDEX_HISTORY_TABLE(moves[i].from, moves[i].to)
 
-                    // this version is slightly better for some reason
+                // this version is slightly better for some reason
 #define UPDATE_HISTORY(BONUS) HISTORY_UPDATE_INDEX -= HISTORY_UPDATE_INDEX * BONUS / MAX_HISTORY - BONUS
-                    // #define UPDATE_HISTORY(BONUS) HISTORY_UPDATE_INDEX += BONUS - HISTORY_UPDATE_INDEX * BONUS / MAX_HISTORY
+                // #define UPDATE_HISTORY(BONUS) HISTORY_UPDATE_INDEX += BONUS - HISTORY_UPDATE_INDEX * BONUS / MAX_HISTORY
+                if (is_not_quiescence && !moves[i].capture) {
+                    int bonus = 300 * depthleft - 250;
+                    UPDATE_HISTORY(bonus);
 
-                    // TODO: consider moving bonus to before "if" so it matches the condition in "while"; test
-                    // if that saves tokens. only saves tokens if the loop "if" doesn't get the braces removed
-                    if (!moves[i].capture) {
-                        int bonus = 300 * depthleft - 250;
-                        UPDATE_HISTORY(bonus);
+                    bonus /= -8;
 
-                        bonus /= -8;
-
-                        while (--i >= 0) {
-                            if (!moves[i].capture) {
-                                UPDATE_HISTORY(bonus);
-                            }
+                    while (--i >= 0) {
+                        if (!moves[i].capture) {
+                            UPDATE_HISTORY(bonus);
                         }
                     }
                 }
