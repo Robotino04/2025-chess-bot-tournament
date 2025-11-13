@@ -68,8 +68,18 @@ static_assert(optimized_tt_size <= 1024 * 1024 * 1024, "Transposition table is t
 #endif
 
 
-int history_table[8192], // [2][64][64]
-    timeout_jmp[20];     // reserve more be safe: https://gcc.gnu.org/onlinedocs/gcc/Nonlocal-Gotos.html
+#define HISTORY_TABLE_SIZE 8192
+#define JUMP_BUFFER_SIZE 20
+#define JUMP_BUFFER_OFFSET HISTORY_TABLE_SIZE
+
+
+// reserve more space for the jump buffer:
+// https://gcc.gnu.org/onlinedocs/gcc/Nonlocal-Gotos.html
+int history_table[8212]; // [2][64][64]
+
+#ifdef STATIC_ASSERTS
+static_assert(sizeof(history_table) / sizeof(history_table[0]) == HISTORY_TABLE_SIZE + JUMP_BUFFER_SIZE);
+#endif
 
 #define INDEX_HISTORY_TABLE(FROM, TO) \
     history_table[chess_is_white_turn(board) * 4096 + chess_get_index_from_bitboard(FROM) * 64 + chess_get_index_from_bitboard(TO)]
@@ -208,7 +218,6 @@ int scoreMove(Move* move) {
 #define SCORE_TIER_PV          10000000
 #define SCORE_TIER_CAPTURE      1000000
 #define SCORE_TIER_PROMOTION      50000
-#define SCORE_TIER_KILLER         25000
 #define MAX_HISTORY               10000
     // clang-format on
 
@@ -232,7 +241,7 @@ int compareMoves(const void* a, const void* b) {
 
 int alphaBeta(int depthleft, int alpha, int beta) {
     if ((int64_t)chess_get_elapsed_time_millis() >= MAX((int64_t)chess_get_time_millis() / 40, 5)) {
-        __builtin_longjmp(timeout_jmp, 1);
+        __builtin_longjmp(history_table + JUMP_BUFFER_OFFSET, 1);
     }
 
 #ifdef STATS
@@ -515,7 +524,7 @@ main_top:
         lmr_hits = 0;
         lmr_misses = 0;
 #endif
-        if (__builtin_setjmp(timeout_jmp)) {
+        if (__builtin_setjmp(history_table + JUMP_BUFFER_OFFSET)) {
             goto search_canceled;
         }
 
