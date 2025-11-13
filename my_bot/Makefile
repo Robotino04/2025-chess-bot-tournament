@@ -52,18 +52,18 @@ example_bot_formatted.c: example_bot_minimized.c
 tournament: example_bot example_bot_minimized tournament.sh
 	./track_progress.sh ./tournament.sh
 
-ENGINE_VERSION := example_bot
+ENGINE_VERSION := example_bot_formatted
 
 COMMON_TEST_ARGS := \
 	-engine "name=NB Latest" cmd=./$(ENGINE_VERSION) \
-	-engine "name=NB v22_zero_search " cmd=./backups/v22_zero_search \
+	-engine "name=NB v23_tune_endgame " cmd=./backups/v23_tune_endgame \
 	-games 999999 -concurrency 16 \
 	-recover \
 	-repeat 2 \
 	-each tc=1 timemargin=200 proto=uci \
 	-ratinginterval 10 \
-    -openings file="book-ply6-unifen_Q.txt.dont_lsp" format=epd order=random plies=6 policy=default 
-	#-openings file="UHO_Lichess_4852_v1.epd" format=epd order=random policy=default \
+	-openings file="UHO_Lichess_4852_v1.epd" format=epd order=random policy=default 
+    #-openings file="book-ply6-unifen_Q.txt.dont_lsp" format=epd order=random plies=6 policy=default 
 
 
 test: $(ENGINE_VERSION) UHO_Lichess_4852_v1.epd book-ply6-unifen_Q.txt.dont_lsp

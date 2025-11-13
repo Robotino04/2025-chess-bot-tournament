@@ -3,6 +3,7 @@ example_bot_clean.c
 example_bot_clean_*.c
 example_bot_minimized
 example_bot_minimized.c
+example_bot_formatted
 example_bot_formatted.c
 train_nn
 

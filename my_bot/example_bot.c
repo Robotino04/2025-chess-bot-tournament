@@ -9,7 +9,6 @@
 #endif
 
 
-// TODO: maybe use TT size as infinity
 #undef INFINITY
 #define INFINITY 10000000
 #define NEGATIVE_INFINITY 0b11111111011001110110100110000000
@@ -113,8 +112,8 @@ uint64_t lmr_misses;
 
 // TODO
 // - [ ] test without custom libchess build
-// - [ ] expand and remove unneeded parens
-// - [ ] set ram limit and add message to submission
+// - [-] expand and remove unneeded parens (we have enough tokens)
+// - [-] set ram limit and add message to submission (Can't have a bss section big enough for some reason)
 
 
 // notshit fen: r3k2r/p1p2ppp/2pp4/4p3/P7/2P1PbP1/RP5P/2Q2K1R w kq - 0 20
@@ -165,7 +164,7 @@ int static_eval_me(PlayerColor color) {
 
 
     // color is inverted already
-    if (material > 200 /* there's a plus in the macro */ MATERIAL_OF(color)) {
+    if (material > 220 /* there's a plus in the macro */ MATERIAL_OF(color)) {
 #define king2_file king2 % 8
 #define king2_rank king2 / 8
 #define king1_file king % 8
@@ -482,7 +481,7 @@ main_top:
     board = chess_get_board();
 
     // including the sort here saved one token at some point
-    // TODO: recheck
+    // TODO: recheck (we have enough tokens so no need to)
     FETCH_MOVES
     SORT_MOVES
 
