@@ -8,6 +8,7 @@ use clang::{
     Clang, Index, TranslationUnit, Unsaved,
     token::{Token, TokenKind},
 };
+use image::{DynamicImage, GenericImageView, ImageReader, Pixel};
 use itertools::Itertools;
 use rustc_hash::{FxBuildHasher, FxHasher};
 
@@ -239,7 +240,201 @@ fn reconstruct_source(tokens: &[PrefetchedToken]) -> String {
         out.push_str(core::str::from_utf8(token.spelling).unwrap());
     }
 
-    out
+    let lines = out
+        .lines()
+        .filter_map(|l| {
+            let trimmed = l.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .collect_vec();
+
+    println!("{lines:#?}");
+
+    let img = ImageReader::open("gear.png")
+        .unwrap()
+        .decode()
+        .unwrap()
+        .grayscale();
+
+    let mut row_outputs = Vec::new();
+
+    'too_small: for initial_width in 1.. {
+        let char_aspect_ratio = 20.0 / 9.0;
+        let initial_height = ((initial_width as f32 * img.height() as f32)
+            / (img.width() as f32 * char_aspect_ratio))
+            .ceil() as u32;
+
+        let char_width = (img.width() / initial_width).max(1);
+        let char_height = (img.height() / initial_height).max(1);
+
+        println!("CW: {char_width}, CH: {char_height}");
+        println!("IW: {initial_width}, IH: {initial_height}");
+
+        let mut fake_word_source = ["//"].iter().cycle();
+
+        row_outputs = Vec::new();
+        let mut lines = lines.iter();
+        while let Some(line) = lines.next() {
+            let mut words = line.split_whitespace();
+
+            loop {
+                if row_outputs.len() as u32 * char_height >= img.height() {
+                    if words.clone().next().is_none() && lines.clone().next().is_none() {
+                        break 'too_small;
+                    } else {
+                        println!("------------------------------");
+                        continue 'too_small;
+                    }
+                }
+
+                let spans = num_spans_in_row(&img, row_outputs.len() as u32 * char_height);
+                if spans.is_empty() {
+                    row_outputs.push(String::new());
+                    continue;
+                }
+
+                let mut outputs = Vec::new();
+
+                for &span in &spans {
+                    let span_chars = span.length / char_width;
+                    let mut chars_used = 0;
+                    let mut span_words = Vec::new();
+
+                    if let Some(next_word) = words.next() {
+                        chars_used += next_word.len() as u32;
+                        span_words.push(next_word.to_string());
+
+                        while let Some(word) = words.clone().next() {
+                            let next_len = word.len() as u32;
+
+                            if chars_used + 1 + next_len > span_chars {
+                                break;
+                            }
+
+                            words.next();
+                            span_words.push(word.to_string());
+                            chars_used += 1 + next_len;
+                        }
+                    }
+
+                    if words.clone().next().is_none() {
+                        while chars_used < span_chars {
+                            let next_word = fake_word_source.next().unwrap();
+                            let next_len = next_word.len() as u32;
+                            let space_before = if span_words.is_empty() { 0 } else { 1 };
+
+                            if chars_used + space_before + next_len > span_chars {
+                                break;
+                            }
+
+                            if space_before > 0 {
+                                chars_used += 1;
+                            }
+                            span_words.push(next_word.to_string());
+                            chars_used += next_len;
+                        }
+                    }
+
+                    if span_words.is_empty() {
+                        span_words.push(fake_word_source.next().unwrap().to_string());
+                    }
+
+                    // 4️⃣ Justify the span
+                    let mut span_text = String::new();
+                    if span_words.len() == 1 {
+                        let word = &span_words[0];
+                        span_text = format!("{: ^width$}", word, width = span_chars as usize);
+                    } else {
+                        let gaps = span_words.len() - 1;
+                        let total_space = (span_chars as usize)
+                            .saturating_sub(span_words.iter().map(|w| w.len()).sum::<usize>());
+
+                        let base_space = if total_space >= gaps {
+                            (total_space - gaps) / gaps
+                        } else {
+                            0
+                        };
+                        let mut extra_space = if total_space >= gaps {
+                            (total_space - gaps) % gaps
+                        } else {
+                            0
+                        };
+
+                        for (i, word) in span_words.iter().enumerate() {
+                            span_text.push_str(word);
+                            if i < gaps {
+                                let spaces = 1 + base_space + if extra_space > 0 { 1 } else { 0 };
+                                extra_space = extra_space.saturating_sub(1);
+                                span_text.push_str(&" ".repeat(spaces));
+                            }
+                        }
+                    }
+
+                    outputs.push(span_text);
+                }
+
+                // Align spans for this row
+                let spans_aligned = outputs
+                    .into_iter()
+                    .zip(spans.iter().map(|s| Span {
+                        length: s.length / char_width,
+                        start: s.start / char_width,
+                    }))
+                    .collect::<Vec<_>>();
+
+                let mut output = String::new();
+                for (text, span) in spans_aligned {
+                    output
+                        .push_str(&" ".repeat((span.start as usize).saturating_sub(output.len())));
+                    output.push_str(&text);
+                }
+
+                println!("{output}");
+                row_outputs.push(output);
+
+                if words.clone().next().is_none() && lines.clone().next().is_some() {
+                    break;
+                }
+            }
+        }
+        break;
+    }
+
+    row_outputs.join("\n")
+}
+
+#[derive(Copy, Clone, Debug)]
+struct Span {
+    pub start: u32,
+    pub length: u32,
+}
+
+fn num_spans_in_row(img: &DynamicImage, row: u32) -> Vec<Span> {
+    let mut spans: Vec<Span> = vec![];
+    let mut in_shape = false;
+    for x in 0..img.width() {
+        if let Some(span) = spans.last_mut()
+            && in_shape
+        {
+            span.length += 1;
+        }
+
+        if in_shape && img.get_pixel(x, row).channels()[0] == 0 {
+            in_shape = false;
+        } else if !in_shape && img.get_pixel(x, row).to_rgb()[0] != 0 {
+            in_shape = true;
+            spans.push(Span {
+                length: 0,
+                start: x,
+            });
+        }
+    }
+
+    spans
 }
 
 #[derive(Clone, Debug)]
@@ -599,21 +794,22 @@ fn main() {
     let tokens = get_tokens(&tu);
     let mut tokens = prefetch_tokens(&tokens, source.as_bytes());
 
-    let macro_names = (0..100).map(|i| format!("rust_macro{i}")).collect_vec();
-    let macro_names = macro_names.iter().map(|i| i.as_str()).collect_vec();
+    let macro_names = include_str!("macro-names.txt").lines().collect_vec();
 
     let mut i = 0;
-    loop {
-        println!("Current Token Count: {}", tokens.len());
-        if tokens.len() >= prev_tokens {
-            println!("Tokens increased from {prev_tokens}. Exiting");
-            break;
+    if true {
+        loop {
+            println!("Current Token Count: {}", tokens.len());
+            if tokens.len() >= prev_tokens {
+                println!("Tokens increased from {prev_tokens}. Exiting");
+                break;
+            }
+            prev_tokens = tokens.len();
+
+            tokens = generate_one_macro(&tokens, macro_names[i]);
+
+            i += 1;
         }
-        prev_tokens = tokens.len();
-
-        tokens = generate_one_macro(&tokens, macro_names[i]);
-
-        i += 1;
     }
 
     let mut tokens_it = tokens.iter().peekable();
