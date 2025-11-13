@@ -5,9 +5,9 @@ LDFLAGS= -lchess -lm -g
 CC= gcc
 CXX= clang++
 
-.PHONY: all clean measure measure_minimized tournament test
+.PHONY: all clean measure measure_minimized measure_formatted tournament test
 
-all: measure example_bot example_bot_minimized measure_minimized train_nn
+all: measure example_bot example_bot_minimized measure_minimized measure_formatted train_nn
 
 measure: example_bot.c
 	java -jar ~/Downloads/toknt.jar example_bot.c
@@ -15,11 +15,17 @@ measure: example_bot.c
 measure_minimized: example_bot_minimized.c
 	java -jar ~/Downloads/toknt.jar example_bot_minimized.c
 
+measure_formatted: example_bot_formatted.c
+	java -jar ~/Downloads/toknt.jar example_bot_formatted.c
+
 example_bot: example_bot.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -o example_bot example_bot.c
 
 example_bot_minimized: example_bot_minimized.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -o example_bot_minimized example_bot_minimized.c
+
+example_bot_formatted: example_bot_formatted.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o example_bot_formatted example_bot_formatted.c
 
 train_nn: train_nn.cpp
 	$(CXX) $(CPPFLAGS) $(LDFLAGS) -o train_nn train_nn.cpp
@@ -38,6 +44,10 @@ example_bot_clean.c: example_bot.c minimize.py uncrustify.ini minimal.clang-form
 example_bot_minimized.c: example_bot_clean.c minimizer/src/main.rs
 	java -jar ~/Downloads/toknt.jar example_bot_clean.c
 	cd minimizer && cargo run --release
+
+example_bot_formatted.c: example_bot_minimized.c
+	# the minimizer generates both
+	touch example_bot_formatted.c
 
 tournament: example_bot example_bot_minimized tournament.sh
 	./track_progress.sh ./tournament.sh
@@ -69,5 +79,17 @@ UHO_Lichess_4852_v1.epd: UHO_Lichess_4852_v1.epd.zip
 	unzip UHO_Lichess_4852_v1.epd.zip
 	touch $@
 
+OUTPUTS:= example_bot \
+		example_bot_minimized \
+		example_bot_minimized.c \
+		example_bot_formatted \
+		example_bot_formatted.c \
+		example_bot_clean.c \
+		example_bot_clean_pcpp.c \
+		example_bot_clean_uncrustify.c \
+		example_bot_clean_clang_tidy.c \
+		example_bot_clean_clang_format.c \
+		train_nn 
+
 clean:
-	rm -f example_bot example_bot_minimized example_bot_clean.c example_bot_minimized.c example_bot_clean_pcpp.c example_bot_clean_clang_tidy.c example_bot_clean_clang_format.c train_nn
+	rm -f $(OUTPUTS)

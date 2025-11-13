@@ -1,4 +1,6 @@
 use std::{
+    backtrace,
+    cmp::Ordering,
     collections::{HashMap, HashSet},
     hash::{Hash, Hasher},
     ops::Range,
@@ -240,7 +242,11 @@ fn reconstruct_source(tokens: &[PrefetchedToken]) -> String {
         out.push_str(core::str::from_utf8(token.spelling).unwrap());
     }
 
-    let lines = out
+    out
+}
+
+fn format_to_image(source: &str) -> String {
+    let lines = source
         .lines()
         .filter_map(|l| {
             let trimmed = l.trim();
@@ -249,6 +255,12 @@ fn reconstruct_source(tokens: &[PrefetchedToken]) -> String {
             } else {
                 Some(trimmed)
             }
+        })
+        .sorted_by(|a, b| match (a.starts_with("#"), b.starts_with("#")) {
+            (true, true) => a.len().cmp(&b.len()),
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
+            (false, false) => Ordering::Equal,
         })
         .collect_vec();
 
@@ -280,6 +292,7 @@ fn reconstruct_source(tokens: &[PrefetchedToken]) -> String {
         let mut lines = lines.iter();
         while let Some(line) = lines.next() {
             let mut words = line.split_whitespace();
+            let is_macro = words.clone().next().is_some_and(|x| x.trim() == "#");
 
             loop {
                 if row_outputs.len() as u32 * char_height >= img.height() {
@@ -299,26 +312,29 @@ fn reconstruct_source(tokens: &[PrefetchedToken]) -> String {
 
                 let mut outputs = Vec::new();
 
-                for &span in &spans {
+                let mut spans_it = spans.iter();
+
+                while let Some(span) = spans_it.next() {
                     let span_chars = span.length / char_width;
                     let mut chars_used = 0;
                     let mut span_words = Vec::new();
 
-                    if let Some(next_word) = words.next() {
-                        chars_used += next_word.len() as u32;
-                        span_words.push(next_word.to_string());
+                    while let Some(word) = words.clone().next() {
+                        let next_len = word.len() as u32;
+                        if chars_used + 1 + next_len > span_chars {
+                            if is_macro && spans_it.clone().next().is_none() {
+                                let backslash = "\\".to_string();
 
-                        while let Some(word) = words.clone().next() {
-                            let next_len = word.len() as u32;
-
-                            if chars_used + 1 + next_len > span_chars {
-                                break;
+                                chars_used += 1 + backslash.len() as u32;
+                                span_words.push(backslash);
                             }
 
-                            words.next();
-                            span_words.push(word.to_string());
-                            chars_used += 1 + next_len;
+                            break;
                         }
+
+                        words.next();
+                        span_words.push(word.to_string());
+                        chars_used += 1 + next_len;
                     }
 
                     if words.clone().next().is_none() {
@@ -334,21 +350,28 @@ fn reconstruct_source(tokens: &[PrefetchedToken]) -> String {
                             if space_before > 0 {
                                 chars_used += 1;
                             }
-                            span_words.push(next_word.to_string());
+                            if span_words.last().is_some_and(|s| s == "\\") {
+                                span_words.insert(span_words.len() - 1, next_word.to_string());
+                            } else {
+                                span_words.push(next_word.to_string());
+                            }
+
                             chars_used += next_len;
                         }
                     }
 
+                    /*
                     if span_words.is_empty() {
-                        span_words.push(fake_word_source.next().unwrap().to_string());
+                    span_words.push(fake_word_source.next().unwrap().to_string());
                     }
+                    */
 
                     // 4️⃣ Justify the span
                     let mut span_text = String::new();
                     if span_words.len() == 1 {
                         let word = &span_words[0];
                         span_text = format!("{: ^width$}", word, width = span_chars as usize);
-                    } else {
+                    } else if span_words.len() > 1 {
                         let gaps = span_words.len() - 1;
                         let total_space = (span_chars as usize)
                             .saturating_sub(span_words.iter().map(|w| w.len()).sum::<usize>());
@@ -862,6 +885,8 @@ fn main() {
     println!("Absorbed to {}", tokens.len());
 
     let source = reconstruct_source(&tokens);
-
     std::fs::write("../example_bot_minimized.c", &source).unwrap();
+
+    let source = format_to_image(&source);
+    std::fs::write("../example_bot_formatted.c", &source).unwrap();
 }
