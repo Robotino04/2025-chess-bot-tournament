@@ -4,6 +4,7 @@ let
     version = "0.0.2";
     pname = "chess";
     src = ./src/c/.;
+    dontStrip = true;
     buildPhase = ''
       mkdir -p $out/lib
       $CC -O3 -g -o $out/lib/libchess.so -shared bitboard.c chessapi.c -fPIC

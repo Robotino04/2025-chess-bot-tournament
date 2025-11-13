@@ -104,6 +104,7 @@ uint64_t lmr_misses;
 // TODO
 // - [ ] test without custom libchess build
 // - [ ] expand and remove unneeded parens
+// - [ ] set ram limit and add message to submission
 
 
 // notshit fen: r3k2r/p1p2ppp/2pp4/4p3/P7/2P1PbP1/RP5P/2Q2K1R w kq - 0 20
@@ -301,7 +302,7 @@ int alphaBeta(int depthleft, int alpha, int beta) {
     SORT_MOVES
 
     ITERATE_MOVES {
-        if (is_not_quiescence || moves[i].capture || is_check) {
+        if (is_not_quiescence || moves[i].capture) {
             chess_make_move(board, moves[i]);
 
             int score;

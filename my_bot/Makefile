@@ -42,20 +42,24 @@ example_bot_minimized.c: example_bot_clean.c minimizer/src/main.rs
 tournament: example_bot example_bot_minimized tournament.sh
 	./track_progress.sh ./tournament.sh
 
+ENGINE_VERSION := example_bot
+
 COMMON_TEST_ARGS := \
-	-engine "name=NB Latest" cmd=./example_bot \
+	-engine "name=NB Latest" cmd=./$(ENGINE_VERSION) \
 	-engine "name=NB v20_small_enough_1017 " cmd=./backups/v20_small_enough_1017 \
-	-openings file="UHO_Lichess_4852_v1.epd" format=epd order=random policy=default \
 	-games 999999 -concurrency 16 \
 	-recover \
+	-repeat 2 \
 	-each tc=1 timemargin=200 proto=uci \
-	-ratinginterval 10
+	-ratinginterval 10 \
+    -openings file="book-ply6-unifen_Q.txt.dont_lsp" format=epd order=random plies=6 policy=default 
+	#-openings file="UHO_Lichess_4852_v1.epd" format=epd order=random policy=default \
 
 
-test: example_bot UHO_Lichess_4852_v1.epd
+test: $(ENGINE_VERSION) UHO_Lichess_4852_v1.epd book-ply6-unifen_Q.txt.dont_lsp
 	cutechess-cli $(COMMON_TEST_ARGS) -sprt elo0=0 elo1=10 alpha=0.05 beta=0.05 | tee /tmp/match.log
 
-untest: example_bot UHO_Lichess_4852_v1.epd
+untest: $(ENGINE_VERSION) UHO_Lichess_4852_v1.epd book-ply6-unifen_Q.txt.dont_lsp
 	cutechess-cli $(COMMON_TEST_ARGS) -sprt elo0=-10 elo1=0 alpha=0.05 beta=0.05 | tee /tmp/match.log
 
 monitor:
