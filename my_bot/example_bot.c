@@ -426,7 +426,7 @@ int alphaBeta(int depthleft, int alpha, int beta) {
 #ifdef STATS
 void print_tt_stats(uint64_t prev_searched_nodes) {
     printf(
-        "info string %ldms left"
+        "info string %ldms left\n"
         "info string Transposition Table\n"
         "info string    hits: %lu\n"
         "info string        hits/search: %f%%\n"
@@ -458,7 +458,7 @@ void print_tt_stats(uint64_t prev_searched_nodes) {
         (float)negascout_hits / (float)(negascout_hits + negascout_misses) * 100.0f,
         lmr_hits,
         lmr_misses,
-        (float)lmr_misses / (float)(lmr_hits + lmr_misses) * 100.0f,
+        (float)lmr_hits / (float)(lmr_hits + lmr_misses) * 100.0f,
         (float)searched_nodes / (float)prev_searched_nodes,
         researches
     );
