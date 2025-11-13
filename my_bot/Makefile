@@ -46,7 +46,7 @@ ENGINE_VERSION := example_bot
 
 COMMON_TEST_ARGS := \
 	-engine "name=NB Latest" cmd=./$(ENGINE_VERSION) \
-	-engine "name=NB v21_better_history " cmd=./backups/v21_better_history \
+	-engine "name=NB v22_zero_search " cmd=./backups/v22_zero_search \
 	-games 999999 -concurrency 16 \
 	-recover \
 	-repeat 2 \

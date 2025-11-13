@@ -497,9 +497,11 @@ main_top:
     static Move prevBestMove, bestMove;
     prevBestMove = bestMove = *moves;
 
-    int prevBestValue = 0, depthleft = 1;
+    int prevBestValue = 0, depthleft = 0; // start searching at depth 0 for move ordering
 
-    while (depthleft++) {
+    // stop searching if we found guaranteed mate
+    while (prevBestValue < INFINITY) {
+        depthleft++;
 
 #ifdef STATS
         prev_searched_nodes = searched_nodes;
@@ -570,10 +572,6 @@ main_top:
 
 
         prevBestMove = bestMove;
-        if (bestValue >= INFINITY) {
-            // stop searching if we found guaranteed mate
-            break;
-        }
     }
 
 
