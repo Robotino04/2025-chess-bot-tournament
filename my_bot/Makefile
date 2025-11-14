@@ -56,7 +56,7 @@ ENGINE_VERSION := example_bot_formatted
 
 COMMON_TEST_ARGS := \
 	-engine "name=NB Latest" cmd=./$(ENGINE_VERSION) \
-	-engine "name=NB v23_tune_endgame " cmd=./backups/v23_tune_endgame \
+	-engine "name=NB v24_numbers " cmd=./backups/v24_numbers \
 	-games 999999 -concurrency 16 \
 	-recover \
 	-repeat 2 \

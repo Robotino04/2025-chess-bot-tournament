@@ -304,8 +304,6 @@ int alphaBeta(int depthleft, int alpha, int beta) {
 #define NULL_WINDOW -alpha - 1, -alpha
 #define NORMAL_WINDOW -beta, -alpha
 
-    bool is_check = chess_in_check(board);
-
     FETCH_MOVES
     SORT_MOVES
 
@@ -318,7 +316,7 @@ int alphaBeta(int depthleft, int alpha, int beta) {
                 score = -alphaBeta(depthleft - 1, NORMAL_WINDOW);
             }
             else {
-#define do_reduce !(moves[i].capture || is_check || i < 3)
+#define do_reduce !(moves[i].capture || i < 3)
 
                 score = -alphaBeta(depthleft - 1 - do_reduce * (len_moves * 93 + depthleft * 144) / 1000, NULL_WINDOW);
 
@@ -577,7 +575,7 @@ main_top:
 search_canceled:
 
     // TODO: use partial search results
-    chess_push(prevBestMove);
+    chess_push(bestMove);
 
     chess_free_board(board);
 
