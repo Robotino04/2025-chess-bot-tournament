@@ -320,7 +320,7 @@ int alphaBeta(int depthleft, int alpha, int beta) {
             else {
 #define do_reduce !(moves[i].capture || is_check || i < 3)
 
-                score = -alphaBeta(depthleft - 1 - do_reduce, NULL_WINDOW);
+                score = -alphaBeta(depthleft - 1 - do_reduce * (len_moves * 93 + depthleft * 144) / 1000, NULL_WINDOW);
 
                 if (score > alpha) {
                     // low-depth search looks promising so retry with full depth.
@@ -546,14 +546,14 @@ main_top:
                 // fail-low: the real score is lower than alpha (aka. prevBestValue - alphaOffset).
                 // still worth searching though because it is still higher than bestValue
 
-                alphaOffset *= 2;
+                alphaOffset *= 4;
                 goto aspiration_fail;
             }
             if (score >= prevBestValue + betaOffset) {
                 // fail-high: the real score is higher than beta (aka. prevBestValue + betaOffset).
                 // so we keep searching with a bigger window
                 //
-                betaOffset *= 2;
+                betaOffset *= 4;
                 goto aspiration_fail;
             }
 
