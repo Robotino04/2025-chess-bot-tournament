@@ -1,9 +1,11 @@
 use std::{
-    backtrace,
     cmp::Ordering,
     collections::{HashMap, HashSet},
+    env::args,
     hash::{Hash, Hasher},
+    io::Cursor,
     ops::Range,
+    path::PathBuf,
 };
 
 use clang::{
@@ -266,7 +268,10 @@ fn format_to_image(source: &str) -> String {
 
     println!("{lines:#?}");
 
-    let img = ImageReader::open("gear.png")
+    let image_data = include_bytes!("../gear.png");
+
+    let img = ImageReader::new(Cursor::new(image_data))
+        .with_guessed_format()
         .unwrap()
         .decode()
         .unwrap()
@@ -806,11 +811,22 @@ fn absorb_macros<'s>(
 }
 
 fn main() {
+    let infile = args()
+        .nth(1)
+        .expect("The input file should be passed as an argument")
+        .parse::<PathBuf>()
+        .expect("The input directory should be valid");
+    let outdir = args()
+        .nth(2)
+        .expect("The output directory should be passed as an argument")
+        .parse::<PathBuf>()
+        .expect("The output directory should be valid");
+
     let clang = Clang::new().unwrap();
 
     let index = Index::new(&clang, false, false);
 
-    let source = std::fs::read_to_string("../thera_mini_clean.c").unwrap();
+    let source = std::fs::read_to_string(infile).unwrap();
 
     let mut prev_tokens = 99999999;
     let tu = get_tu(&index, &source);
@@ -885,8 +901,16 @@ fn main() {
     println!("Absorbed to {}", tokens.len());
 
     let source = reconstruct_source(&tokens);
-    std::fs::write("../thera_mini_minimized.c", &source).unwrap();
+    {
+        let mut outpath = outdir.clone();
+        outpath.push("thera_mini_minimized.c");
+        std::fs::write(outpath, &source).unwrap();
+    }
 
     let source = format_to_image(&source);
-    std::fs::write("../thera_mini_formatted.c", &source).unwrap();
+    {
+        let mut outpath = outdir.clone();
+        outpath.push("thera_mini_formatted.c");
+        std::fs::write(outpath, &source).unwrap();
+    }
 }

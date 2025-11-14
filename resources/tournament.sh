@@ -7,7 +7,7 @@ cutechess-cli \
     -engine "name=NB v15_late_move_reduction" cmd=./backups/v15_late_move_reduction \
     -engine "name=NB v12_root_ordering" cmd=./backups/v12_root_ordering \
     -engine "name=NB v9_negascout_tc" cmd=./backups/v9_negascout_tc \
-    -openings file="book-ply6-unifen_Q.txt.dont_lsp" format=epd order=random plies=6 policy=default \
+    -openings file="resources/book-ply6-unifen_Q.txt.dont_lsp" format=epd order=random plies=6 policy=default \
     -games 350 -concurrency 16 \
     -recover \
     -each tc=1 timemargin=200 proto=uci \

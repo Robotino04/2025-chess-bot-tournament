@@ -3,11 +3,18 @@ let
   chess-lib = pkgs.stdenv.mkDerivation {
     version = "0.0.2";
     pname = "chess";
-    src = ./src/c/.;
+    src = pkgs.fetchFromGitHub {
+      owner = "shiro-nya";
+      repo = "2025-chess-bot-tournament";
+      rev = "main";
+      hash = "sha256-cG7CvV/r5IixqO0pHfY/b4lgXR0M2qq8viUUGIJaKx0=";
+    };
     dontStrip = true;
     buildPhase = ''
-      mkdir -p $out/lib
+      cd src/c/
+      mkdir -p $out/{lib,include}
       $CC -O3 -g -o $out/lib/libchess.so -shared bitboard.c chessapi.c -fPIC
+      cp *.h $out/include/
     '';
   };
   pythonPkgs = ps: [
