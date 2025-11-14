@@ -2,8 +2,8 @@
 cutechess-cli \
     -engine "conf=Stockfish 1320" \
     -engine "conf=Stockfish 1500" \
-    -engine "name=NB Latest" cmd=./example_bot \
-    -engine "name=NB Latest Minimized" cmd=./example_bot_minimized \
+    -engine "name=NB Latest" cmd=./thera_mini \
+    -engine "name=NB Latest Minimized" cmd=./thera_mini_minimized \
     -engine "name=NB v15_late_move_reduction" cmd=./backups/v15_late_move_reduction \
     -engine "name=NB v12_root_ordering" cmd=./backups/v12_root_ordering \
     -engine "name=NB v9_negascout_tc" cmd=./backups/v9_negascout_tc \

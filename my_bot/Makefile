@@ -7,52 +7,52 @@ CXX= clang++
 
 .PHONY: all clean measure measure_minimized measure_formatted tournament test
 
-all: measure example_bot example_bot_minimized measure_minimized measure_formatted train_nn
+all: measure thera_mini thera_mini_minimized measure_minimized measure_formatted train_nn
 
-measure: example_bot.c
-	java -jar ~/Downloads/toknt.jar example_bot.c
+measure: thera_mini.c
+	java -jar ~/Downloads/toknt.jar thera_mini.c
 
-measure_minimized: example_bot_minimized.c
-	java -jar ~/Downloads/toknt.jar example_bot_minimized.c
+measure_minimized: thera_mini_minimized.c
+	java -jar ~/Downloads/toknt.jar thera_mini_minimized.c
 
-measure_formatted: example_bot_formatted.c
-	java -jar ~/Downloads/toknt.jar example_bot_formatted.c
+measure_formatted: thera_mini_formatted.c
+	java -jar ~/Downloads/toknt.jar thera_mini_formatted.c
 
-example_bot: example_bot.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o example_bot example_bot.c
+thera_mini: thera_mini.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o thera_mini thera_mini.c
 
-example_bot_minimized: example_bot_minimized.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o example_bot_minimized example_bot_minimized.c
+thera_mini_minimized: thera_mini_minimized.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o thera_mini_minimized thera_mini_minimized.c
 
-example_bot_formatted: example_bot_formatted.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o example_bot_formatted example_bot_formatted.c
+thera_mini_formatted: thera_mini_formatted.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o thera_mini_formatted thera_mini_formatted.c
 
 train_nn: train_nn.cpp
 	$(CXX) $(CPPFLAGS) $(LDFLAGS) -o train_nn train_nn.cpp
 
-example_bot_clean.c: example_bot.c minimize.py uncrustify.ini minimal.clang-format minimal.clang-tidy-fixes
-	pcpp --passthru-unfound-includes --passthru-includes ".*" --line-directive "" -D MINIMIZE example_bot.c -o example_bot_clean_pcpp.c
-	cp example_bot_clean_pcpp.c example_bot_clean_clang_tidy.c 
-	clang-tidy example_bot_clean_clang_tidy.c --fix --quiet $(cat minimal.clang-tidy-fixes) -- $(CFLAGS) -I../src/c/
-	uncrustify -lc -c uncrustify.ini < example_bot_clean_clang_tidy.c > example_bot_clean_uncrustify.c
-	clang-format --style=file:minimal.clang-format < example_bot_clean_uncrustify.c > example_bot_clean_clang_format.c
+thera_mini_clean.c: thera_mini.c minimize.py uncrustify.ini minimal.clang-format minimal.clang-tidy-fixes
+	pcpp --passthru-unfound-includes --passthru-includes ".*" --line-directive "" -D MINIMIZE thera_mini.c -o thera_mini_clean_pcpp.c
+	cp thera_mini_clean_pcpp.c thera_mini_clean_clang_tidy.c 
+	clang-tidy thera_mini_clean_clang_tidy.c --fix --quiet $(cat minimal.clang-tidy-fixes) -- $(CFLAGS) -I../src/c/
+	uncrustify -lc -c uncrustify.ini < thera_mini_clean_clang_tidy.c > thera_mini_clean_uncrustify.c
+	clang-format --style=file:minimal.clang-format < thera_mini_clean_uncrustify.c > thera_mini_clean_clang_format.c
 
-	cp example_bot_clean_clang_format.c example_bot_clean.c
+	cp thera_mini_clean_clang_format.c thera_mini_clean.c
 
-	#python3 minimize.py < example_bot.c > example_bot_clean.c
+	#python3 minimize.py < thera_mini.c > thera_mini_clean.c
 
-example_bot_minimized.c: example_bot_clean.c minimizer/src/main.rs
-	java -jar ~/Downloads/toknt.jar example_bot_clean.c
+thera_mini_minimized.c: thera_mini_clean.c minimizer/src/main.rs
+	java -jar ~/Downloads/toknt.jar thera_mini_clean.c
 	cd minimizer && cargo run --release
 
-example_bot_formatted.c: example_bot_minimized.c
+thera_mini_formatted.c: thera_mini_minimized.c
 	# the minimizer generates both
-	touch example_bot_formatted.c
+	touch thera_mini_formatted.c
 
-tournament: example_bot example_bot_minimized tournament.sh
+tournament: thera_mini thera_mini_minimized tournament.sh
 	./track_progress.sh ./tournament.sh
 
-ENGINE_VERSION := example_bot_formatted
+ENGINE_VERSION := thera_mini_formatted
 
 COMMON_TEST_ARGS := \
 	-engine "name=NB Latest" cmd=./$(ENGINE_VERSION) \
@@ -79,16 +79,16 @@ UHO_Lichess_4852_v1.epd: UHO_Lichess_4852_v1.epd.zip
 	unzip UHO_Lichess_4852_v1.epd.zip
 	touch $@
 
-OUTPUTS:= example_bot \
-		example_bot_minimized \
-		example_bot_minimized.c \
-		example_bot_formatted \
-		example_bot_formatted.c \
-		example_bot_clean.c \
-		example_bot_clean_pcpp.c \
-		example_bot_clean_uncrustify.c \
-		example_bot_clean_clang_tidy.c \
-		example_bot_clean_clang_format.c \
+OUTPUTS:= thera_mini \
+		thera_mini_minimized \
+		thera_mini_minimized.c \
+		thera_mini_formatted \
+		thera_mini_formatted.c \
+		thera_mini_clean.c \
+		thera_mini_clean_pcpp.c \
+		thera_mini_clean_uncrustify.c \
+		thera_mini_clean_clang_tidy.c \
+		thera_mini_clean_clang_format.c \
 		train_nn 
 
 clean:

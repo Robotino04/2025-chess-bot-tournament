@@ -790,7 +790,7 @@ fn absorb_macros<'s>(
 
                         let source = reconstruct_source(&tokens);
 
-                        std::fs::write("../example_bot_minimized.c", &source).unwrap();
+                        std::fs::write("../thera_mini_minimized.c", &source).unwrap();
 
                         println!("\n------------\n{source}\n------------\n");
                         std::io::stdin().read_line(&mut String::new()).unwrap();
@@ -810,7 +810,7 @@ fn main() {
 
     let index = Index::new(&clang, false, false);
 
-    let source = std::fs::read_to_string("../example_bot_clean.c").unwrap();
+    let source = std::fs::read_to_string("../thera_mini_clean.c").unwrap();
 
     let mut prev_tokens = 99999999;
     let tu = get_tu(&index, &source);
@@ -885,8 +885,8 @@ fn main() {
     println!("Absorbed to {}", tokens.len());
 
     let source = reconstruct_source(&tokens);
-    std::fs::write("../example_bot_minimized.c", &source).unwrap();
+    std::fs::write("../thera_mini_minimized.c", &source).unwrap();
 
     let source = format_to_image(&source);
-    std::fs::write("../example_bot_formatted.c", &source).unwrap();
+    std::fs::write("../thera_mini_formatted.c", &source).unwrap();
 }
